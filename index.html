@@ -4930,8 +4930,9 @@ function CodeHelp({ onClose }) {
                     } }, "Got it")))));
 }
 function Landing({ onDone, onAdmin, notice }) {
-    const [mode, setMode] = useState("signin"); // signin | activate | setpw | newpw | reset
-    const [f, setF] = useState({ email: "", password: "", confirm: "", name: "", code: "", newEmail: "", greetAs: "" });
+    const [mode, setMode] = useState("signin"); // signin | signup | activate | setpw | newpw | reset
+    const [f, setF] = useState({ email: "", password: "", confirm: "", name: "", code: "", newEmail: "", greetAs: "",
+        firstName: "", lastName: "", org: "" });
     const [errors, setErrors] = useState({});
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState(null);
@@ -5000,6 +5001,50 @@ function Landing({ onDone, onAdmin, notice }) {
                 return;
             }
             finish(data);
+        }
+        catch (err) {
+            failWith(err);
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    /* ---------------- create an account (no code needed) ---------------- */
+    const doSignUp = async () => {
+        const e = {};
+        if (!f.firstName.trim())
+            e.firstName = "Enter your first name";
+        if (!f.lastName.trim())
+            e.lastName = "Enter your last name";
+        if (!f.org.trim())
+            e.org = "Enter your organization";
+        if (!f.newEmail.trim())
+            e.newEmail = "Enter your work email";
+        else if (!EMAIL_RE.test(f.newEmail.trim()))
+            e.newEmail = "Enter a valid email address";
+        if (!f.password)
+            e.password = "Create a password";
+        else {
+            const p = passwordProblem(f.password, { name: `${f.firstName} ${f.lastName}` });
+            if (p)
+                e.password = p;
+        }
+        if (!f.confirm)
+            e.confirm = "Type the same password again";
+        else if (f.confirm !== f.password)
+            e.confirm = "Passwords don't match";
+        setErrors(e);
+        if (Object.keys(e).length)
+            return;
+        setBusy(true);
+        setMsg(null);
+        try {
+            const data = await callSheet("signup", {
+                firstName: f.firstName.trim(), lastName: f.lastName.trim(), org: f.org.trim(),
+                email: f.newEmail.trim().toLowerCase(), password: f.password,
+                greetAs: f.greetAs.trim() || f.firstName.trim(),
+            });
+            finish(data, { justActivated: true });
         }
         catch (err) {
             failWith(err);
@@ -5164,6 +5209,7 @@ function Landing({ onDone, onAdmin, notice }) {
                         React.createElement("div", { style: { fontSize: 13.5, marginTop: 5, lineHeight: 1.55, opacity: 0.95, maxWidth: 380 } }, "CPT and HCPCS coding rules traced to their CMS source."))),
                 React.createElement("div", { style: { display: "flex", background: C.bg, borderLeft: `1px solid ${C.line}`, borderRight: `1px solid ${C.line}` } },
                     React.createElement(Tab, { id: "signin", label: "Sign in", alsoFor: ["reset", "newpw"] }),
+                    React.createElement(Tab, { id: "signup", label: "Create account" }),
                     React.createElement(Tab, { id: "activate", label: "First time here", alsoFor: ["setpw"] })),
                 React.createElement("div", { style: { background: "#fff", border: `1px solid ${C.line}`, borderTop: "none", borderRadius: "0 0 12px 12px", padding: 24 } },
                     notice && mode === "signin" && !msg && (React.createElement("div", { style: { marginBottom: 16, padding: "11px 13px", background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } }, notice)),
@@ -5172,9 +5218,9 @@ function Landing({ onDone, onAdmin, notice }) {
                                 landingHello(new Date()),
                                 " ",
                                 React.createElement("span", { className: "astra-wave", "aria-hidden": "true" }, "\uD83D\uDC4B")), sub: "Sign in to pick up where you left off." }),
-                        React.createElement(Field, { label: "Employee ID", required: true, error: errors.email },
-                            React.createElement("input", { "aria-label": "Employee ID", value: f.email, onChange: set("email"), onKeyDown: onKey(doSignIn), type: "text", autoComplete: "username", autoCapitalize: "none", spellCheck: false, autoFocus: true, placeholder: "e.g. PHC456", style: inputStyle(errors.email) }),
-                            !errors.email && (React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 5, lineHeight: 1.5 } }, "From column B of your activation sheet."))),
+                        React.createElement(Field, { label: "Employee ID or email", required: true, error: errors.email },
+                            React.createElement("input", { "aria-label": "Employee ID or email", value: f.email, onChange: set("email"), onKeyDown: onKey(doSignIn), type: "text", autoComplete: "username", autoCapitalize: "none", spellCheck: false, autoFocus: true, placeholder: "e.g. PHC456 or you@company.com", style: inputStyle(errors.email) }),
+                            !errors.email && (React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 5, lineHeight: 1.5 } }, "Your Employee ID if Purview gave you one, otherwise the email you signed up with."))),
                         React.createElement("div", { style: { marginTop: 14 } },
                             React.createElement(Field, { label: "Password", required: true, error: errors.password },
                                 React.createElement(PasswordInput, { ariaLabel: "Password", value: f.password, onChange: set("password"), onKeyDown: onKey(doSignIn), autoComplete: "current-password", bad: !!errors.password }))),
@@ -5183,9 +5229,41 @@ function Landing({ onDone, onAdmin, notice }) {
                             React.createElement("button", { onClick: () => go("reset"), style: linkBtn }, "Forgot your password?")),
                         React.createElement("div", { style: { marginTop: 18, padding: "12px 14px", background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 8, fontSize: 12.5, color: C.ink, lineHeight: 1.6 } },
                             React.createElement("b", null, "First time here?"),
-                            " You'll need the activation code Purview Healthcare gave you.",
                             " ",
-                            React.createElement("button", { onClick: () => go("activate"), style: { ...linkBtn, fontWeight: 800 } }, "Activate your account \u2192")))),
+                            React.createElement("button", { onClick: () => go("signup"), style: { ...linkBtn, fontWeight: 800 } }, "Create an account \u2192"),
+                            " ",
+                            "Purview staff with an activation code can",
+                            " ",
+                            React.createElement("button", { onClick: () => go("activate"), style: { ...linkBtn, fontWeight: 800 } }, "use it here"),
+                            " instead."))),
+                    mode === "signup" && (React.createElement(React.Fragment, null,
+                        React.createElement(StepHead, { title: "Create your account", sub: "A minute to set up. You'll sign in with this email and a password of your own." }),
+                        React.createElement("div", { style: { display: "flex", gap: 10 } },
+                            React.createElement("div", { style: { flex: 1 } },
+                                React.createElement(Field, { label: "First name", required: true, error: errors.firstName },
+                                    React.createElement("input", { "aria-label": "First name", value: f.firstName, onChange: set("firstName"), onKeyDown: onKey(doSignUp), autoComplete: "given-name", autoFocus: true, placeholder: "First name", style: inputStyle(errors.firstName) }))),
+                            React.createElement("div", { style: { flex: 1 } },
+                                React.createElement(Field, { label: "Last name", required: true, error: errors.lastName },
+                                    React.createElement("input", { "aria-label": "Last name", value: f.lastName, onChange: set("lastName"), onKeyDown: onKey(doSignUp), autoComplete: "family-name", placeholder: "Last name", style: inputStyle(errors.lastName) })))),
+                        React.createElement("div", { style: { marginTop: 14 } },
+                            React.createElement(Field, { label: "Organization", required: true, error: errors.org },
+                                React.createElement("input", { "aria-label": "Organization", value: f.org, onChange: set("org"), onKeyDown: onKey(doSignUp), autoComplete: "organization", placeholder: "Practice, billing company or group", style: inputStyle(errors.org) }))),
+                        React.createElement("div", { style: { marginTop: 14 } },
+                            React.createElement(Field, { label: "Work email", required: true, error: errors.newEmail },
+                                React.createElement("input", { "aria-label": "Work email", value: f.newEmail, onChange: set("newEmail"), onKeyDown: onKey(doSignUp), type: "email", autoComplete: "username", autoCapitalize: "none", spellCheck: false, placeholder: "you@company.com", style: inputStyle(errors.newEmail) }),
+                                !errors.newEmail && (React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 5, lineHeight: 1.5 } }, "You'll sign in with this, and it's where a temporary password goes if you ever forget yours.")))),
+                        React.createElement("div", { style: { marginTop: 14 } },
+                            React.createElement(Field, { label: "Create password", required: true, error: errors.password },
+                                React.createElement(PasswordInput, { ariaLabel: "Create password", value: f.password, onChange: set("password"), onKeyDown: onKey(doSignUp), autoComplete: "new-password", placeholder: "At least 8 characters", bad: !!errors.password }),
+                                !errors.password && React.createElement(PasswordRules, { pw: f.password, ctx: { name: `${f.firstName} ${f.lastName}` } }))),
+                        React.createElement("div", { style: { marginTop: 14 } },
+                            React.createElement(Field, { label: "Confirm password", required: true, error: errors.confirm },
+                                React.createElement(PasswordInput, { ariaLabel: "Confirm password", value: f.confirm, onChange: set("confirm"), onKeyDown: onKey(doSignUp), autoComplete: "new-password", placeholder: "Type it again", bad: !!errors.confirm }),
+                                !errors.confirm && React.createElement(MatchNote, { pw: f.password, confirm: f.confirm }))),
+                        React.createElement("button", { onClick: doSignUp, disabled: busy, style: primaryBtn }, busy ? "Creating your account…" : "Create account"),
+                        React.createElement("div", { style: { textAlign: "center", marginTop: 12 } },
+                            React.createElement("button", { onClick: () => go("signin"), style: { ...linkBtn, color: C.soft } }, "Already have an account? Sign in")),
+                        React.createElement("div", { style: { marginTop: 14, fontSize: 12, color: C.soft, lineHeight: 1.6 } }, "Coding Astra holds no patient information, and none should ever be typed into it."))),
                     mode === "activate" && (React.createElement(React.Fragment, null,
                         React.createElement(StepHead, { step: "STEP 1 OF 2", title: "Activate your account", sub: "Copy your details from the activation sheet your team lead shared. You only do this once." }),
                         React.createElement(Field, { label: "Full name or Employee ID", required: true, error: errors.name },
@@ -5265,9 +5343,9 @@ function Landing({ onDone, onAdmin, notice }) {
                         React.createElement("div", { style: { textAlign: "center", marginTop: 12 } },
                             React.createElement("button", { onClick: () => { setTempPw(""); clearPasswords(); go("signin"); }, style: { ...linkBtn, color: C.soft } }, "\u2190 Back to sign in")))),
                     mode === "reset" && (React.createElement(React.Fragment, null,
-                        React.createElement(StepHead, { title: "Reset your password", sub: "Enter your Employee ID. We'll email a temporary password to the address you gave when you activated \u2014 it works for 24 hours." }),
-                        React.createElement(Field, { label: "Employee ID", required: true, error: errors.email },
-                            React.createElement("input", { "aria-label": "Employee ID", value: f.email, onChange: set("email"), onKeyDown: onKey(doReset), type: "text", autoCapitalize: "none", spellCheck: false, autoFocus: true, style: inputStyle(errors.email) })),
+                        React.createElement(StepHead, { title: "Reset your password", sub: "Enter your Employee ID, or the email you signed up with. We'll send a temporary password to that account's email \u2014 it works for 24 hours." }),
+                        React.createElement(Field, { label: "Employee ID or email", required: true, error: errors.email },
+                            React.createElement("input", { "aria-label": "Employee ID or email", value: f.email, onChange: set("email"), onKeyDown: onKey(doReset), type: "text", autoCapitalize: "none", spellCheck: false, autoFocus: true, style: inputStyle(errors.email) })),
                         React.createElement("button", { onClick: doReset, disabled: busy, style: primaryBtn }, busy ? "Sending…" : "Send temporary password"),
                         React.createElement("div", { style: { textAlign: "center", marginTop: 12 } },
                             React.createElement("button", { onClick: () => go("signin"), style: { ...linkBtn, color: C.soft } }, "\u2190 Back to sign in")))),
