@@ -2618,6 +2618,28 @@ function parseMue(text) {
    Columns are found by their headings, so both the older "HCPCS CODE /
    CATEGORY / SHORT DESCRIPTION" layout and the newer "HCPCS / CATG /
    Description" one read. */
+/* A dozen HCPCS Level II items, so Code lookup answers something the
+   moment somebody opens it. HCPCS Level II descriptions are public
+   domain; CPT descriptions are AMA-licensed and never ship in this
+   page, which is why the full code set comes from the CMS file each
+   person loads. No fees and no unit limits are invented here — those
+   appear only once a real CMS file is in. */
+const SAMPLE_CODES = [
+    { code: "E0601", desc: "Continuous positive airway pressure (CPAP) device" },
+    { code: "E0470", desc: "Respiratory assist device, bi-level, without backup rate" },
+    { code: "E0431", desc: "Portable gaseous oxygen system, rental" },
+    { code: "E1390", desc: "Oxygen concentrator, single delivery port" },
+    { code: "E0143", desc: "Walker, folding, wheeled, adjustable or fixed height" },
+    { code: "E0114", desc: "Crutches, underarm, other than wood, adjustable or fixed, pair" },
+    { code: "K0001", desc: "Standard wheelchair" },
+    { code: "K0003", desc: "Lightweight wheelchair" },
+    { code: "E0260", desc: "Hospital bed, semi-electric, with any type side rails and mattress" },
+    { code: "A7030", desc: "Full face mask used with positive airway pressure device" },
+    { code: "A7034", desc: "Nasal interface used with positive airway pressure device" },
+    { code: "A4253", desc: "Blood glucose test or reagent strips, per 50 strips" },
+    { code: "L0650", desc: "Lumbar-sacral orthosis, sagittal-coronal control, prefabricated, off the shelf" },
+    { code: "E0163", desc: "Commode chair, stationary, with fixed arms" },
+];
 const STATE_ABBR = new Set("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR VI GU AS MP".split(" "));
 function parseDmepos(text) {
     const rows = parseCsv(text);
@@ -3850,6 +3872,26 @@ function DatasetLoader({ cms, setCms, restoring }) {
                 } }, busy ? "Reading…" : restoring ? "Loading your saved files…" : rows.length ? "Add more files" : "Choose CSV files"),
             React.createElement("input", { ref: ref, type: "file", accept: ".csv,text/csv", multiple: true, style: { display: "none" }, onChange: (e) => { handle(e.target.files); e.target.value = ""; } }),
             React.createElement("span", { style: { fontSize: 12.5, color: C.soft } }, "Kept on this computer only \u2014 nothing is uploaded.")),
+        !rows.length && !cms.sample && (React.createElement("div", { style: { marginTop: 14, background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 8, padding: "14px 16px" } },
+            React.createElement("div", { style: { fontSize: 13.5, fontWeight: 800, color: C.navy } }, "Want to see it working first? Try the built-in sample"),
+            React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 4, lineHeight: 1.6 } },
+                SAMPLE_CODES.length,
+                " common DME items are included, so you can search straight away \u2014 E0601, K0001, A7030 and more. Descriptions and the DME rules are real; fees and unit limits need the CMS files above."),
+            React.createElement("button", { onClick: () => setCms((c) => ({ ...c, sample: true })), style: {
+                    marginTop: 12, background: "#fff", color: C.teal, border: `1.5px solid ${C.teal}`,
+                    borderRadius: 7, padding: "9px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer",
+                } }, "Use the sample codes"))),
+        cms.sample && (React.createElement("div", { style: { marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
+                background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, padding: "10px 14px" } },
+            React.createElement("span", { style: { fontSize: 12.5, color: C.ink, flex: 1, minWidth: 220, lineHeight: 1.55 } },
+                React.createElement("b", null, "Sample codes are on."),
+                " ",
+                SAMPLE_CODES.length,
+                " DME items, descriptions only \u2014 load the CMS files for fees, unit limits and every other code."),
+            React.createElement("button", { onClick: () => setCms((c) => ({ ...c, sample: false })), style: {
+                    background: "transparent", border: "none", color: C.warn, fontSize: 12.5, fontWeight: 800,
+                    cursor: "pointer", textDecoration: "underline", padding: 0,
+                } }, "Turn the sample off"))),
         notes.length > 0 && (React.createElement("div", { style: { marginTop: 12, padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 12.5, color: "#991B1B" } }, notes.map((n, i) => React.createElement("div", { key: i }, n)))),
         saveNote && (React.createElement("div", { role: "status", style: { marginTop: 12, padding: "9px 12px", borderRadius: 8, fontSize: 12.5,
                 background: saveNote.ok ? "#EFFBF4" : C.warnBg, border: `1px solid ${saveNote.ok ? "#BFE9D2" : "#FCD9A8"}`, color: saveNote.ok ? "#166534" : C.warn } }, saveNote.text)),
@@ -4093,7 +4135,7 @@ const DMEPOS_CATG = {
     TS: ["Therapeutic shoes", "Diabetic shoes and inserts."],
 };
 const DME_JURIS = { D: "DME MAC", L: "Local Part B contractor", J: "Joint — DME MAC and local contractor" };
-function DmeCodeCard({ code, entry, rvuBase, dmeMue, dmeMueSet, dmeposRows, dmeposSet, curated, onBack, backCount }) {
+function DmeCodeCard({ code, entry, rvuBase, dmeMue, dmeMueSet, dmeposRows, dmeposSet, curated, onBack, backCount, sample }) {
     const rows = dmeposRows || [];
     const main = rows.find((r) => !r.mod) || rows[0] || null;
     const desc = (main && main.desc) || (entry && entry.desc) || "";
@@ -4123,7 +4165,14 @@ function DmeCodeCard({ code, entry, rvuBase, dmeMue, dmeMueSet, dmeposRows, dmep
         React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" } },
             React.createElement("div", { style: { fontSize: 26, fontWeight: 900, color: C.navy, letterSpacing: -0.5 } }, code),
             React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: desc ? C.ink : C.soft, flex: 1, minWidth: 200 } }, desc || "Description isn't in your loaded files")),
+        sample && (React.createElement("div", { style: { marginTop: 10, padding: "10px 12px", background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 12.5, color: C.ink, lineHeight: 1.6 } },
+            "This is one of the built-in sample items \u2014 the description and Coding Astra's own DME rules below are real, but its fee, jurisdiction and unit limit come from CMS's files. Load the ",
+            React.createElement("b", null, "DMEPOS fee schedule"),
+            " and the ",
+            React.createElement("b", null, "DME Supplier MUE"),
+            " table above to see those for your date of service.")),
         React.createElement("div", { style: { marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" } },
+            sample && React.createElement("span", { style: pill(C.warnBg, "#FCD9A8", C.warn) }, "Sample code"),
             React.createElement("span", { style: pill(C.paleTeal, "#BFE5E5", "#0B6E6E") }, "DME supplier item"),
             React.createElement("span", { style: pill("#F1F5F9", "#CBD5E1", "#475569") }, "Billed to the DME MAC \u00B7 DMEPOS fee schedule")),
         React.createElement("div", { style: { fontSize: 13, color: C.ink, marginTop: 12, lineHeight: 1.6 } },
@@ -4225,7 +4274,7 @@ function CodeLookup({ cms, setCms, restoring }) {
     }), [cms.rvu, cms.mue, cms.dmepos, cms.dos]);
     const rvuSet = sets.rvu;
     const mueSet = sets.mue[cms.claimType] || null;
-    const anyData = cms.rvu.length > 0 || cms.mue.length > 0 || dmeposList.length > 0;
+    const anyData = cms.rvu.length > 0 || cms.mue.length > 0 || dmeposList.length > 0 || !!cms.sample;
     /* Every code in force on the date, from every file loaded — the
        fee schedule, the DMEPOS fee schedule and all three MUE tables —
        so DME items that aren't on the physician fee schedule are found. */
@@ -4254,8 +4303,16 @@ function CodeLookup({ cms, setCms, restoring }) {
         ["Practitioner", "Facility"].forEach((t) => { if (sets.mue[t])
             for (const c of sets.mue[t].map.keys())
                 add(c, "", null); });
+        if (cms.sample) {
+            SAMPLE_CODES.forEach(({ code, desc }) => {
+                const had = m.has(code);
+                add(code, desc, "dme");
+                if (!had)
+                    m.get(code).sample = true; // only a sample until the real files arrive
+            });
+        }
         return m;
-    }, [sets]);
+    }, [sets, cms.sample]);
     /* Search accepts the same shapes as the CMS tool:
          44970                 one code
          44950-44979           a range
@@ -4401,7 +4458,7 @@ function CodeLookup({ cms, setCms, restoring }) {
                         r.dme && React.createElement("span", { style: { fontSize: 10.5, fontWeight: 900, color: "#0B6E6E", background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 4, padding: "1px 6px" } }, "DME"),
                         React.createElement("span", { style: { fontSize: 11.5, color: C.soft, whiteSpace: "nowrap" } }, b && b.glob !== "XXX" && b.glob ? b.glob + " global" : "")));
                 })))),
-            view === "dme" && (React.createElement(DmeCodeCard, { code: code, entry: entry, rvuBase: base, dmeMue: sets.mue.DME ? sets.mue.DME.map.get(code) : null, dmeMueSet: sets.mue.DME, dmeposRows: sets.dmepos ? sets.dmepos.map.get(code) : null, dmeposSet: sets.dmepos, curated: curated, onBack: back, backCount: results.length })),
+            view === "dme" && (React.createElement(DmeCodeCard, { code: code, entry: entry, rvuBase: base, dmeMue: sets.mue.DME ? sets.mue.DME.map.get(code) : null, dmeMueSet: sets.mue.DME, dmeposRows: sets.dmepos ? sets.dmepos.map.get(code) : null, dmeposSet: sets.dmepos, curated: curated, onBack: back, backCount: results.length, sample: !!(entry && entry.sample) })),
             view === "other" && (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 18 } },
                 back && (React.createElement("button", { onClick: back, style: { background: "transparent", border: "none", color: C.teal, fontSize: 13, fontWeight: 800, cursor: "pointer", padding: 0, marginBottom: 10 } },
                     "\u2190 Back to ",
@@ -4932,7 +4989,8 @@ function CodeHelp({ onClose }) {
 function Landing({ onDone, onAdmin, notice }) {
     const [mode, setMode] = useState("signin"); // signin | signup | activate | setpw | newpw | reset
     const [f, setF] = useState({ email: "", password: "", confirm: "", name: "", code: "", newEmail: "", greetAs: "",
-        firstName: "", lastName: "", org: "" });
+        firstName: "", lastName: "", org: "", address1: "", address2: "",
+        city: "", state: "", zip: "" });
     const [errors, setErrors] = useState({});
     const [busy, setBusy] = useState(false);
     const [msg, setMsg] = useState(null);
@@ -4984,7 +5042,7 @@ function Landing({ onDone, onAdmin, notice }) {
     const doSignIn = async () => {
         const e = {};
         if (!f.email.trim())
-            e.email = "Enter your Employee ID";
+            e.email = "Enter your email";
         if (!f.password)
             e.password = "Password is required";
         setErrors(e);
@@ -5022,6 +5080,16 @@ function Landing({ onDone, onAdmin, notice }) {
             e.newEmail = "Enter your work email";
         else if (!EMAIL_RE.test(f.newEmail.trim()))
             e.newEmail = "Enter a valid email address";
+        if (!f.city.trim())
+            e.city = "Enter your city";
+        if (!f.state.trim())
+            e.state = "Enter your state";
+        else if (!STATE_ABBR.has(f.state.trim().toUpperCase()))
+            e.state = "Use the 2-letter state code, like PA";
+        if (!f.zip.trim())
+            e.zip = "Enter your ZIP code";
+        else if (!/^\d{5}(-\d{4})?$/.test(f.zip.trim()))
+            e.zip = "Enter a 5-digit ZIP, like 19446";
         if (!f.password)
             e.password = "Create a password";
         else {
@@ -5042,6 +5110,8 @@ function Landing({ onDone, onAdmin, notice }) {
             const data = await callSheet("signup", {
                 firstName: f.firstName.trim(), lastName: f.lastName.trim(), org: f.org.trim(),
                 email: f.newEmail.trim().toLowerCase(), password: f.password,
+                address1: f.address1.trim(), address2: f.address2.trim(),
+                city: f.city.trim(), state: f.state.trim().toUpperCase(), zip: f.zip.trim(),
                 greetAs: f.greetAs.trim() || f.firstName.trim(),
             });
             finish(data, { justActivated: true });
@@ -5162,7 +5232,7 @@ function Landing({ onDone, onAdmin, notice }) {
     const doReset = async () => {
         const login = f.email.trim();
         if (!login) {
-            setErrors({ email: "Enter your Employee ID" });
+            setErrors({ email: "Enter your email" });
             return;
         }
         if (login.includes("@") && !EMAIL_RE.test(login)) {
@@ -5209,8 +5279,7 @@ function Landing({ onDone, onAdmin, notice }) {
                         React.createElement("div", { style: { fontSize: 13.5, marginTop: 5, lineHeight: 1.55, opacity: 0.95, maxWidth: 380 } }, "CPT and HCPCS coding rules traced to their CMS source."))),
                 React.createElement("div", { style: { display: "flex", background: C.bg, borderLeft: `1px solid ${C.line}`, borderRight: `1px solid ${C.line}` } },
                     React.createElement(Tab, { id: "signin", label: "Sign in", alsoFor: ["reset", "newpw"] }),
-                    React.createElement(Tab, { id: "signup", label: "Create account" }),
-                    React.createElement(Tab, { id: "activate", label: "First time here", alsoFor: ["setpw"] })),
+                    React.createElement(Tab, { id: "signup", label: "Create account", alsoFor: ["activate", "setpw"] })),
                 React.createElement("div", { style: { background: "#fff", border: `1px solid ${C.line}`, borderTop: "none", borderRadius: "0 0 12px 12px", padding: 24 } },
                     notice && mode === "signin" && !msg && (React.createElement("div", { style: { marginBottom: 16, padding: "11px 13px", background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } }, notice)),
                     mode === "signin" && (React.createElement(React.Fragment, null,
@@ -5218,9 +5287,8 @@ function Landing({ onDone, onAdmin, notice }) {
                                 landingHello(new Date()),
                                 " ",
                                 React.createElement("span", { className: "astra-wave", "aria-hidden": "true" }, "\uD83D\uDC4B")), sub: "Sign in to pick up where you left off." }),
-                        React.createElement(Field, { label: "Employee ID or email", required: true, error: errors.email },
-                            React.createElement("input", { "aria-label": "Employee ID or email", value: f.email, onChange: set("email"), onKeyDown: onKey(doSignIn), type: "text", autoComplete: "username", autoCapitalize: "none", spellCheck: false, autoFocus: true, placeholder: "e.g. PHC456 or you@company.com", style: inputStyle(errors.email) }),
-                            !errors.email && (React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 5, lineHeight: 1.5 } }, "Your Employee ID if Purview gave you one, otherwise the email you signed up with."))),
+                        React.createElement(Field, { label: "Email", required: true, error: errors.email },
+                            React.createElement("input", { "aria-label": "Email", value: f.email, onChange: set("email"), onKeyDown: onKey(doSignIn), type: "email", autoComplete: "username", autoCapitalize: "none", spellCheck: false, autoFocus: true, placeholder: "you@company.com", style: inputStyle(errors.email) })),
                         React.createElement("div", { style: { marginTop: 14 } },
                             React.createElement(Field, { label: "Password", required: true, error: errors.password },
                                 React.createElement(PasswordInput, { ariaLabel: "Password", value: f.password, onChange: set("password"), onKeyDown: onKey(doSignIn), autoComplete: "current-password", bad: !!errors.password }))),
@@ -5230,12 +5298,9 @@ function Landing({ onDone, onAdmin, notice }) {
                         React.createElement("div", { style: { marginTop: 18, padding: "12px 14px", background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 8, fontSize: 12.5, color: C.ink, lineHeight: 1.6 } },
                             React.createElement("b", null, "First time here?"),
                             " ",
-                            React.createElement("button", { onClick: () => go("signup"), style: { ...linkBtn, fontWeight: 800 } }, "Create an account \u2192"),
-                            " ",
-                            "Purview staff with an activation code can",
-                            " ",
-                            React.createElement("button", { onClick: () => go("activate"), style: { ...linkBtn, fontWeight: 800 } }, "use it here"),
-                            " instead."))),
+                            React.createElement("button", { onClick: () => go("signup"), style: { ...linkBtn, fontWeight: 800 } }, "Create an account \u2192")),
+                        React.createElement("div", { style: { textAlign: "center", marginTop: 12, fontSize: 11.5, color: C.soft } },
+                            React.createElement("button", { onClick: () => go("activate"), style: { ...linkBtn, fontSize: 11.5, color: C.soft, textDecoration: "underline" } }, "Purview staff with an activation code")))),
                     mode === "signup" && (React.createElement(React.Fragment, null,
                         React.createElement(StepHead, { title: "Create your account", sub: "A minute to set up. You'll sign in with this email and a password of your own." }),
                         React.createElement("div", { style: { display: "flex", gap: 10 } },
@@ -5253,6 +5318,22 @@ function Landing({ onDone, onAdmin, notice }) {
                                 React.createElement("input", { "aria-label": "Work email", value: f.newEmail, onChange: set("newEmail"), onKeyDown: onKey(doSignUp), type: "email", autoComplete: "username", autoCapitalize: "none", spellCheck: false, placeholder: "you@company.com", style: inputStyle(errors.newEmail) }),
                                 !errors.newEmail && (React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 5, lineHeight: 1.5 } }, "You'll sign in with this, and it's where a temporary password goes if you ever forget yours.")))),
                         React.createElement("div", { style: { marginTop: 14 } },
+                            React.createElement(Field, { label: "Address line 1" },
+                                React.createElement("input", { "aria-label": "Address line 1", value: f.address1, onChange: set("address1"), onKeyDown: onKey(doSignUp), autoComplete: "address-line1", placeholder: "Optional \u2014 street address", style: inputStyle(false) }))),
+                        React.createElement("div", { style: { marginTop: 10 } },
+                            React.createElement(Field, { label: "Address line 2" },
+                                React.createElement("input", { "aria-label": "Address line 2", value: f.address2, onChange: set("address2"), onKeyDown: onKey(doSignUp), autoComplete: "address-line2", placeholder: "Optional \u2014 suite, floor", style: inputStyle(false) }))),
+                        React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 14 } },
+                            React.createElement("div", { style: { flex: 2 } },
+                                React.createElement(Field, { label: "City", required: true, error: errors.city },
+                                    React.createElement("input", { "aria-label": "City", value: f.city, onChange: set("city"), onKeyDown: onKey(doSignUp), autoComplete: "address-level2", placeholder: "City", style: inputStyle(errors.city) }))),
+                            React.createElement("div", { style: { flex: 1 } },
+                                React.createElement(Field, { label: "State", required: true, error: errors.state },
+                                    React.createElement("input", { "aria-label": "State", value: f.state, onChange: set("state"), onKeyDown: onKey(doSignUp), autoComplete: "address-level1", maxLength: 2, autoCapitalize: "characters", placeholder: "PA", style: { ...inputStyle(errors.state), textTransform: "uppercase" } }))),
+                            React.createElement("div", { style: { flex: 1.2 } },
+                                React.createElement(Field, { label: "ZIP", required: true, error: errors.zip },
+                                    React.createElement("input", { "aria-label": "ZIP", value: f.zip, onChange: set("zip"), onKeyDown: onKey(doSignUp), autoComplete: "postal-code", inputMode: "numeric", maxLength: 10, placeholder: "19446", style: inputStyle(errors.zip) })))),
+                        React.createElement("div", { style: { marginTop: 14 } },
                             React.createElement(Field, { label: "Create password", required: true, error: errors.password },
                                 React.createElement(PasswordInput, { ariaLabel: "Create password", value: f.password, onChange: set("password"), onKeyDown: onKey(doSignUp), autoComplete: "new-password", placeholder: "At least 8 characters", bad: !!errors.password }),
                                 !errors.password && React.createElement(PasswordRules, { pw: f.password, ctx: { name: `${f.firstName} ${f.lastName}` } }))),
@@ -5263,6 +5344,8 @@ function Landing({ onDone, onAdmin, notice }) {
                         React.createElement("button", { onClick: doSignUp, disabled: busy, style: primaryBtn }, busy ? "Creating your account…" : "Create account"),
                         React.createElement("div", { style: { textAlign: "center", marginTop: 12 } },
                             React.createElement("button", { onClick: () => go("signin"), style: { ...linkBtn, color: C.soft } }, "Already have an account? Sign in")),
+                        React.createElement("div", { style: { textAlign: "center", marginTop: 10, fontSize: 11.5, color: C.soft } },
+                            React.createElement("button", { onClick: () => go("activate"), style: { ...linkBtn, fontSize: 11.5, color: C.soft, textDecoration: "underline" } }, "Purview staff with an activation code")),
                         React.createElement("div", { style: { marginTop: 14, fontSize: 12, color: C.soft, lineHeight: 1.6 } }, "Coding Astra holds no patient information, and none should ever be typed into it."))),
                     mode === "activate" && (React.createElement(React.Fragment, null,
                         React.createElement(StepHead, { step: "STEP 1 OF 2", title: "Activate your account", sub: "Copy your details from the activation sheet your team lead shared. You only do this once." }),
@@ -5287,7 +5370,7 @@ function Landing({ onDone, onAdmin, notice }) {
                                     React.createElement("button", { type: "button", onClick: () => setCodeHelp(true), style: { ...linkBtn, fontSize: 11.5 } }, "Show me"))))),
                         React.createElement("button", { onClick: doCheckCode, disabled: busy, style: primaryBtn }, busy ? "Checking…" : "Continue"),
                         React.createElement("div", { style: { textAlign: "center", marginTop: 12 } },
-                            React.createElement("button", { onClick: () => go("signin"), style: { ...linkBtn, color: C.soft } }, "Already activated? Sign in")))),
+                            React.createElement("button", { onClick: () => go("signin"), style: { ...linkBtn, color: C.soft } }, "Already have an account? Sign in")))),
                     mode === "setpw" && who && (React.createElement(React.Fragment, null,
                         React.createElement(StepHead, { step: "STEP 2 OF 2", title: "Create your password", sub: React.createElement(React.Fragment, null,
                                 "Welcome, ",
@@ -5343,9 +5426,9 @@ function Landing({ onDone, onAdmin, notice }) {
                         React.createElement("div", { style: { textAlign: "center", marginTop: 12 } },
                             React.createElement("button", { onClick: () => { setTempPw(""); clearPasswords(); go("signin"); }, style: { ...linkBtn, color: C.soft } }, "\u2190 Back to sign in")))),
                     mode === "reset" && (React.createElement(React.Fragment, null,
-                        React.createElement(StepHead, { title: "Reset your password", sub: "Enter your Employee ID, or the email you signed up with. We'll send a temporary password to that account's email \u2014 it works for 24 hours." }),
-                        React.createElement(Field, { label: "Employee ID or email", required: true, error: errors.email },
-                            React.createElement("input", { "aria-label": "Employee ID or email", value: f.email, onChange: set("email"), onKeyDown: onKey(doReset), type: "text", autoCapitalize: "none", spellCheck: false, autoFocus: true, style: inputStyle(errors.email) })),
+                        React.createElement(StepHead, { title: "Reset your password", sub: "Enter the email you sign in with. We'll send a temporary password to it \u2014 it works for 24 hours." }),
+                        React.createElement(Field, { label: "Email", required: true, error: errors.email },
+                            React.createElement("input", { "aria-label": "Email", value: f.email, onChange: set("email"), onKeyDown: onKey(doReset), type: "text", autoCapitalize: "none", spellCheck: false, autoFocus: true, style: inputStyle(errors.email) })),
                         React.createElement("button", { onClick: doReset, disabled: busy, style: primaryBtn }, busy ? "Sending…" : "Send temporary password"),
                         React.createElement("div", { style: { textAlign: "center", marginTop: 12 } },
                             React.createElement("button", { onClick: () => go("signin"), style: { ...linkBtn, color: C.soft } }, "\u2190 Back to sign in")))),
@@ -5803,6 +5886,63 @@ function AiPanel({ account }) {
                     " assistant in the corner of every tab.")),
             React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 10, lineHeight: 1.6 } }, "Every request is charged to the key above, so the two daily limits are your spending guard. Identical questions within six hours are answered from a cache and cost nothing. Answers are a starting point, not a ruling: CMS, the MAC's LCD and the payer's own policy still decide. Nobody should ever type patient details into the app."))));
 }
+/* ============================================================
+   SIGN-UP ALERTS  (administrator only)
+   Who gets an email when somebody creates an account.
+   ============================================================ */
+function AlertsCard({ account }) {
+    const [cfg, setCfg] = useState(null);
+    const [to, setTo] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [note, setNote] = useState(null);
+    const [error, setError] = useState(null);
+    const creds = { email: account.email, password: account.pw };
+    const apply = (a) => { setCfg(a); setTo((a.to || []).join(", ")); };
+    const load = async () => {
+        try {
+            apply((await callSheet("alertsConfig", creds)).alerts);
+        }
+        catch (e) {
+            setError(friendlyAuthError(e));
+        }
+    };
+    useEffect(() => { load(); }, []);
+    const save = async (extra) => {
+        setBusy(true);
+        setError(null);
+        setNote(null);
+        try {
+            const r = await callSheet("alertsSave", { ...creds, to, ...(extra || {}) });
+            apply(r.alerts);
+            setNote(r.alerts.off ? "Saved. Alerts are switched off."
+                : r.alerts.to.length ? "Saved. New sign-ups will be emailed to " + r.alerts.to.join(", ") + "."
+                    : "Saved. With no address here, nobody is told about new sign-ups.");
+        }
+        catch (e) {
+            setError(friendlyAuthError(e));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.cyan}`, borderRadius: 10, padding: 16 } },
+        React.createElement("div", { style: { fontSize: 15, fontWeight: 900, color: C.navy } }, "Tell me when someone signs up"),
+        React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 4, lineHeight: 1.6 } },
+            "An email the moment an account is created, with their name, organization, email and location. Separate several addresses with commas \u2014 up to ",
+            cfg ? cfg.max : 5,
+            ". The email is sent by the Google account that owns this spreadsheet, so it arrives from that address."),
+        React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap", alignItems: "center" } },
+            React.createElement("input", { "aria-label": "Alert addresses", value: to, onChange: (e) => { setTo(e.target.value); setNote(null); }, placeholder: "you@purviewhealthcare.com, bd@purviewhealthcare.com", style: { flex: "1 1 280px", padding: "9px 12px", fontSize: 13.5, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } }),
+            React.createElement("button", { onClick: () => save(), disabled: busy, style: {
+                    background: busy ? "#CBD9DE" : GRAD, color: "#fff", border: "none", borderRadius: 7,
+                    padding: "9px 16px", fontSize: 13, fontWeight: 800, cursor: busy ? "wait" : "pointer",
+                } }, busy ? "Saving…" : "Save")),
+        cfg && (React.createElement("label", { style: { display: "flex", gap: 9, alignItems: "flex-start", marginTop: 12, cursor: "pointer" } },
+            React.createElement("input", { type: "checkbox", checked: !!cfg.off, onChange: (e) => save({ off: e.target.checked }), style: { marginTop: 3 } }),
+            React.createElement("span", { style: { fontSize: 13, color: C.ink, lineHeight: 1.55 } }, "Stop these emails for now. The addresses stay saved."))),
+        note && React.createElement("div", { role: "status", style: { marginTop: 10, fontSize: 12.5, color: "#166534" } }, note),
+        error && React.createElement("div", { role: "alert", style: { marginTop: 10, fontSize: 12.5, color: "#991B1B" } }, error)));
+}
 function AdminPanel({ account }) {
     const [users, setUsers] = useState(null);
     const [activation, setActivation] = useState(null);
@@ -5881,6 +6021,7 @@ function AdminPanel({ account }) {
                 React.createElement("span", { style: { display: "block", fontSize: 14, fontWeight: 800, color: C.navy } }, "Open the accounts spreadsheet"),
                 React.createElement("span", { style: { display: "block", fontSize: 12.5, color: C.soft, marginTop: 3, lineHeight: 1.5 } }, "Every account, and your Activation codes tab. Download as Excel from File \u2192 Download. Passwords are stored only as hashes on a hidden tab \u2014 nobody can read them.")),
             React.createElement("span", { style: { fontSize: 13, fontWeight: 800, color: C.teal, whiteSpace: "nowrap" } }, "Open \u2197"))),
+        React.createElement(AlertsCard, { account: account }),
         React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap" } }, stats.map(([label, val]) => (React.createElement("div", { key: label, className: "astra-orbit", style: { flex: "1 1 160px", background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.teal}`, borderRadius: 10, padding: "14px 16px" } },
             React.createElement("div", { style: { fontSize: 11.5, fontWeight: 800, color: C.soft, letterSpacing: 0.3, textTransform: "uppercase" } }, label),
             React.createElement("div", { style: { fontSize: 26, fontWeight: 900, color: C.navy, marginTop: 4 } }, val))))),
@@ -6480,7 +6621,7 @@ function App() {
     const [tab, setTab] = useState("rules");
     const [cms, setCms] = useState(() => {
         const saved = safeStore.get("astraClaimType");
-        return { rvu: [], mue: [], dmepos: [], dos: "",
+        return { rvu: [], mue: [], dmepos: [], dos: "", sample: safeStore.get("astraSample") === "1",
             claimType: ["Practitioner", "DME", "Facility"].includes(saved) ? saved : "Practitioner" };
     });
     const [cmsRestoring, setCmsRestoring] = useState(true);
@@ -6496,6 +6637,7 @@ function App() {
         return () => { alive = false; };
     }, []);
     useEffect(() => { safeStore.set("astraClaimType", cms.claimType); }, [cms.claimType]);
+    useEffect(() => { safeStore.set("astraSample", cms.sample ? "1" : "0"); }, [cms.sample]);
     // AI requests are made as the signed-in person, so the sheet can hold them to its daily limits.
     useEffect(() => { setAiAuth(account); }, [account]);
     const [spec, setSpec] = useState(null);
