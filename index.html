@@ -1000,6 +1000,10 @@ const SLEEP = ["C0", "29", "13"];
 const THERAPY = ["65", "67", "25", "12", "35"];
 const CARDIO = ["06", "21", "C3", "C7", "76", "77"];
 const PODI = ["48"];
+const DENTAL = ["C5", "19", "85"]; /* dentist, oral surgery, maxillofacial */
+const MAMMO = ["45", "30"]; /* mammography centre, diagnostic radiology */
+const HYPER = ["D1", "02", "24"]; /* undersea and hyperbaric, general and plastic surgery wound work */
+const GENETICS = ["D3", "22", "69", "90", "83"]; /* medical genetics, pathology, oncology and haematology */
 /* ============================================================
    CURATED RULES
    ============================================================ */
@@ -2183,6 +2187,192 @@ const RULES = [
             { type: "Manual", ref: "Pub. 100-04, Claims Processing Manual, Ch. 18 (preventive services)", effective: "Ongoing", url: "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms", note: "Medicare vaccine administration G-codes and billing" },
         ],
     },
+    /* ---------------- DENTAL / ORAL SURGERY ---------------- */
+    {
+        code: "Dental services and Medicare", isConcept: true, specCodes: DENTAL, tag: "Dental / Oral Surgery",
+        title: "When Medicare Part B pays for dental care",
+        pos: [{ code: "11", note: "Dental or physician office" }, { code: "22", note: "Hospital outpatient" }, { code: "21", note: "Inpatient, when done during the admission" }, { code: "24", note: "Ambulatory surgical centre" }],
+        modifiers: [
+            { mod: "None specific", when: "There is no modifier that makes dental care covered — the covered medical service it is linked to is what does that" },
+            { mod: "GY", when: "Genuinely excluded dental care, to force the denial so the patient or their dental plan can be billed" },
+            { mod: "GA", when: "You hold a signed ABN because you expect the service to be denied" },
+        ],
+        units: "As the procedure itself dictates. The linkage, not the units, is what decides payment.",
+        dx: [
+            ["Z01.818", "Encounter for other preprocedural examination — the dental clearance visit"],
+            ["C00–C14", "Malignant neoplasms of lip, oral cavity and pharynx — head and neck cancer treatment"],
+            ["Z94.0 / Z94.1 / Z94.81", "Kidney, heart and bone marrow transplant status"],
+            ["I35.0 / I34.0", "Aortic and mitral valve disorders — before valve replacement or valvuloplasty"],
+            ["K04.7 / K05.30", "Periapical abscess and chronic periodontitis — the dental condition being cleared"],
+        ],
+        dxNote: "Two diagnoses tell the story: the dental condition being treated, and the medical condition that makes the treatment necessary. Claims that carry only the dental diagnosis get denied as the statutory exclusion.",
+        why: "Dental care is excluded from Medicare by statute. CMS pays for it only where it is inextricably linked to an otherwise covered medical service — an exam and treatment before an organ or stem-cell transplant, before cardiac valve replacement or valvuloplasty, or as part of head and neck cancer treatment (payable from January 2023), and from January 2024 also before or during chemotherapy, CAR-T cell therapy and high-dose bone-modifying agents. Dental work that isn't tied to one of those is still excluded, however medically sensible it looks.",
+        docs: "The referring specialist's request, the covered medical service and its planned date, the oral findings and how they threaten that service, and the treatment given. Keep both records together — this is what a reviewer asks for.",
+        sources: [
+            { type: "Final Rule", ref: "CY 2023 PFS final rule (CMS-1770-F)", effective: "Jan 1, 2023", url: "https://www.cms.gov/medicare/payment/fee-schedules/physician", note: "Transplant, cardiac valve and head and neck cancer scenarios" },
+            { type: "Final Rule", ref: "CY 2024 PFS final rule (CMS-1784-F)", effective: "Jan 1, 2024", url: "https://www.cms.gov/newsroom/fact-sheets/calendar-year-cy-2024-medicare-physician-fee-schedule-final-rule", note: "Added chemotherapy, CAR-T and high-dose bone-modifying agents" },
+            { type: "Manual", ref: "Pub. 100-02, Benefit Policy Manual, Ch. 15 §150 (dental services)", effective: "Ongoing", url: "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms", note: "The exclusion and its exceptions" },
+        ],
+        verifyHint: "CMS adds clinical scenarios through the yearly PFS rule, so check the current year's rule before writing off a claim as excluded.",
+    },
+    {
+        code: "Dental clearance before a covered procedure", isConcept: true, specCodes: DENTAL, tag: "Dental / Oral Surgery",
+        title: "What the clearance claim has to show",
+        pos: [{ code: "11", note: "Office" }, { code: "22", note: "Hospital outpatient" }],
+        modifiers: [{ mod: "None specific", when: "Ordinary professional billing rules apply once the service qualifies" }],
+        units: "One examination per planned procedure. Extractions and other treatment are billed as performed.",
+        dx: [
+            ["Z01.818", "Preprocedural examination"],
+            ["Z94.x", "Transplant status, where the clearance follows a transplant"],
+            ["C01–C14", "Head and neck malignancy under treatment"],
+        ],
+        dxNote: "Lead with the medical reason for the clearance, then the dental finding. A claim that reads as a routine check-up will be denied even when the care was genuinely pre-transplant.",
+        why: "The commonest reason a legitimate clearance is denied is a claim that doesn't say why it was needed — no referring physician, no linked procedure, no date. The dental service is covered because of the medical service it protects, so the claim has to carry that link.",
+        docs: "Referral from the transplant, cardiology or oncology team; the planned covered procedure and its date; oral findings; the treatment plan; and the completion note sent back to the referring team.",
+        sources: [
+            { type: "Final Rule", ref: "CY 2023 and CY 2024 PFS final rules (dental provisions)", effective: "Jan 1, 2023 and Jan 1, 2024", url: "https://www.cms.gov/newsroom/fact-sheets/calendar-year-cy-2024-medicare-physician-fee-schedule-final-rule", note: "Scenarios and documentation expectations" },
+            { type: "Manual", ref: "Pub. 100-04, Claims Processing Manual, Ch. 12 (dental services)", effective: "Ongoing", url: "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms", note: "How the professional claim is submitted" },
+        ],
+    },
+    /* ---------------- MAMMOGRAPHY ---------------- */
+    {
+        code: "77067 / 77066 / 77065", specCodes: MAMMO, tag: "Mammography",
+        title: "Screening versus diagnostic mammography, and both on one day",
+        pos: [{ code: "22", note: "Hospital outpatient" }, { code: "11", note: "Office or imaging centre" }, { code: "19", note: "Off-campus hospital outpatient" }],
+        modifiers: [
+            { mod: "GG", when: "A screening mammogram converts to a diagnostic one on the same day — put GG on the diagnostic code and bill both" },
+            { mod: "26", when: "Interpretation only, when the equipment belongs to someone else" },
+            { mod: "TC", when: "Technical component only" },
+            { mod: "RT / LT", when: "Unilateral diagnostic studies, where the payer wants the side" },
+        ],
+        units: "77067 is bilateral by definition — one unit. 77065 is unilateral, 77066 bilateral. Screening is one per year: Medicare pays it once 11 full months have passed since the last one, with one baseline study allowed between ages 35 and 39.",
+        dx: [
+            ["Z12.31", "Encounter for screening mammogram for malignant neoplasm of breast — the screening claim"],
+            ["N63.x", "Unspecified lump in breast — a diagnostic reason"],
+            ["N64.5", "Other signs and symptoms in breast"],
+            ["Z85.3", "Personal history of malignant neoplasm of breast"],
+            ["Z80.3", "Family history of malignant neoplasm of breast"],
+        ],
+        dxNote: "Z12.31 belongs on the screening study only. The moment a radiologist calls the patient back for additional views, the reason has changed and so must the diagnosis.",
+        why: "Two denials dominate this specialty. The first is frequency: a screening billed before 11 full months have elapsed is rejected outright, which is why the last screening date matters more than the calendar year. The second is the same-day conversion — when a screening finds something and the patient stays for diagnostic views, both studies are payable, but only if GG is appended to the diagnostic code. Without it one of the two claims is treated as a duplicate.",
+        docs: "Date of the previous screening, the order, the radiologist's report for each study, and for a same-day conversion a report that explains what prompted the additional views.",
+        sources: [
+            { type: "Manual", ref: "Pub. 100-04, Claims Processing Manual, Ch. 18 §20 (screening mammography)", effective: "Ongoing", url: "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms", note: "Frequency rules and the GG modifier" },
+            { type: "Manual", ref: "Pub. 100-02, Benefit Policy Manual, Ch. 15 §280.3", effective: "Ongoing", url: "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms", note: "The screening mammography benefit, baseline and age rules" },
+        ],
+        verifyHint: "Check the patient's last screening date in the payer portal before the visit — it is the single cheapest way to stop a frequency denial.",
+    },
+    {
+        code: "77063 / G0279", specCodes: MAMMO, tag: "Mammography",
+        title: "Tomosynthesis add-ons — never billed on their own",
+        pos: [{ code: "22", note: "Hospital outpatient" }, { code: "11", note: "Office or imaging centre" }],
+        modifiers: [
+            { mod: "26 / TC", when: "Professional and technical splits, matching the primary study" },
+            { mod: "GG", when: "Where the primary study was a screening that converted to diagnostic the same day" },
+        ],
+        units: "One unit each, always alongside the primary mammogram: 77063 with screening 77067, G0279 with diagnostic 77065 or 77066.",
+        dx: [
+            ["Z12.31", "With the screening study"],
+            ["N63.x / N64.5", "With a diagnostic study"],
+        ],
+        dxNote: "The add-on carries the same diagnosis as the study it accompanies.",
+        why: "Both codes are add-ons. Billed alone, or paired with the wrong primary, they deny — G0279 with a screening code and 77063 with a diagnostic code are the two mistakes worth checking for. Some payers still fold tomosynthesis into the base study, so an add-on that pays for one payer may bundle for another.",
+        docs: "The report must say tomosynthesis was performed and interpreted, not merely that the equipment is capable of it.",
+        sources: [
+            { type: "Manual", ref: "Pub. 100-04, Claims Processing Manual, Ch. 18 (mammography services)", effective: "Ongoing", url: "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms", note: "Billing of digital breast tomosynthesis with the base study" },
+            { type: "NCD/LCD", ref: "MAC articles on breast imaging", effective: "Varies by MAC", url: "https://www.cms.gov/medicare-coverage-database", note: "Local pairing and coverage detail" },
+        ],
+    },
+    /* ---------------- HYPERBARIC MEDICINE ---------------- */
+    {
+        code: "99183 / G0277", specCodes: HYPER, tag: "Hyperbaric Medicine",
+        title: "Hyperbaric oxygen — what is covered and how the two codes split",
+        pos: [{ code: "22", note: "Hospital outpatient — the usual setting" }, { code: "11", note: "Office-based chamber" }, { code: "21", note: "Inpatient" }],
+        modifiers: [
+            { mod: "GA", when: "ABN on file because the indication may fall outside NCD 20.29" },
+            { mod: "GY", when: "An indication the NCD explicitly excludes, to force the denial" },
+            { mod: "59 / X{EPSU}", when: "Rarely — where a same-day service genuinely stands apart" },
+        ],
+        units: "99183 is the physician's attendance and supervision, one unit per session, whatever its length. G0277 is the facility's charge, one unit per 30-minute interval of chamber time. Billing 99183 per 30 minutes is a standard error.",
+        dx: [
+            ["E11.621 + L97.5xx", "Diabetes with foot ulcer, with the ulcer site and depth — the commonest covered indication"],
+            ["M86.6xx", "Chronic osteomyelitis, refractory to standard management"],
+            ["T79.A0xx", "Traumatic compartment syndrome / crush injury"],
+            ["L59.8 / M27.2", "Soft tissue radionecrosis and osteoradionecrosis"],
+            ["T58.x", "Carbon monoxide poisoning"],
+        ],
+        dxNote: "NCD 20.29 lists the covered indications — carbon monoxide poisoning, decompression illness, gas embolism, gas gangrene, crush injury, necrotising infections, chronic refractory osteomyelitis, osteoradionecrosis, soft tissue radionecrosis, compromised skin grafts, actinomycosis, cyanide poisoning and diabetic lower-extremity wounds. Anything outside that list is non-covered, and the NCD names 20-odd conditions it specifically will not pay for.",
+        why: "Wound programmes lose money here in two ways: billing the physician code by time instead of by session, and treating indications the NCD doesn't cover. The chamber runs either way, so the cost is real.",
+        docs: "The indication and how it was established, the physician's presence and supervision for the session, chamber time in minutes, pressure and protocol, and the response to treatment.",
+        sources: [
+            { type: "NCD/LCD", ref: "NCD 20.29 — Hyperbaric Oxygen Therapy", effective: "Ongoing", url: "https://www.cms.gov/medicare-coverage-database/view/ncd.aspx?ncdid=12", note: "The covered and non-covered indication lists" },
+            { type: "Manual", ref: "Pub. 100-03, NCD Manual §20.29", effective: "Ongoing", url: "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms", note: "National coverage wording" },
+        ],
+    },
+    {
+        code: "Diabetic wounds and the 30-day rule", isConcept: true, specCodes: HYPER, tag: "Hyperbaric Medicine",
+        title: "The three tests a diabetic wound has to pass",
+        pos: [{ code: "22", note: "Hospital outpatient" }, { code: "11", note: "Office-based chamber" }],
+        modifiers: [{ mod: "GA", when: "Continuing treatment where healing has stalled and denial is likely" }],
+        units: "Sessions continue only while the wound is measurably improving. Coverage stops if no measurable signs of healing appear in any 30-day period.",
+        dx: [
+            ["E11.621 / E10.621", "Type 2 or type 1 diabetes with foot ulcer"],
+            ["L97.5xx", "Non-pressure chronic ulcer of foot, with depth — the Wagner grade has to be supported"],
+            ["E11.51", "Diabetes with peripheral angiopathy, where present"],
+        ],
+        dxNote: "The ulcer code has to carry the site and depth that support a Wagner grade III or higher. A vague ulcer code is why otherwise good claims fail review.",
+        why: "NCD 20.29 sets three tests for diabetic lower-extremity wounds: the patient has diabetes with a lower-extremity wound, the wound is Wagner grade III or higher, and standard wound care has run for at least 30 days with no measurable healing. Then the wound must be re-evaluated at least every 30 days during treatment, and continued sessions are not covered if no measurable healing shows in any 30-day period. Auditors count days and measurements, so a chart that records neither loses the whole course.",
+        docs: "Wagner grade with the findings behind it; the standard wound care given and its dates, covering at least 30 days; wound measurements at each re-evaluation; and the decision to continue or stop.",
+        sources: [
+            { type: "NCD/LCD", ref: "NCD 20.29 §C (diabetic wounds of the lower extremities)", effective: "Ongoing", url: "https://www.cms.gov/medicare-coverage-database/view/ncd.aspx?ncdid=12", note: "Wagner grade III, 30 days of failed standard care, 30-day re-evaluations" },
+            { type: "NCD/LCD", ref: "MAC hyperbaric oxygen LCDs and billing articles", effective: "Varies by MAC", url: "https://www.cms.gov/medicare-coverage-database", note: "Local documentation and session limits" },
+        ],
+        verifyHint: "Some MACs cap the number of sessions per course — check your own LCD before a long protocol.",
+    },
+    /* ---------------- MEDICAL GENETICS AND GENOMICS ---------------- */
+    {
+        code: "81479 / 81459 and the DEX Z-code", specCodes: GENETICS, tag: "Genetics & Genomics",
+        title: "Molecular tests in a MolDX jurisdiction",
+        pos: [{ code: "81", note: "Independent laboratory" }, { code: "22", note: "Hospital outpatient" }, { code: "11", note: "Office, where the specimen is collected" }],
+        modifiers: [
+            { mod: "90", when: "Reference (outside) laboratory performed the test" },
+            { mod: "91", when: "Repeat of the same test on the same day, clinically necessary" },
+            { mod: "GA / GZ", when: "ABN held, or expected denial with no ABN" },
+        ],
+        units: "One unit per test. An unlisted molecular code billed with several units is a review magnet.",
+        dx: [
+            ["C50.x / C34.x / C18.x", "The cancer under treatment, for tumour profiling"],
+            ["Z15.01 / Z15.09", "Genetic susceptibility to malignant neoplasm"],
+            ["Z80.x", "Family history of malignant neoplasm, supporting germline testing"],
+        ],
+        dxNote: "The diagnosis has to support the specific test performed, not genetic testing in general.",
+        why: "Where a MAC runs the MolDX programme, a molecular test needs a registered DEX Z-Code identifier on the claim as well as the CPT code — targeted panels are typically billed as 81479 with one unit plus the test's Z-code, and comprehensive genomic profiles as 81459 or 81479 with theirs. A claim without the identifier is denied even when the test itself is covered, and laboratories that never registered the assay can't fix it after the fact.",
+        docs: "The treating clinician's order and the clinical question, the test's technical identity, the registered identifier, and how the result changes management.",
+        sources: [
+            { type: "NCD/LCD", ref: "MolDX: Molecular Diagnostic Tests (MDT) — billing article A56853", effective: "Ongoing", url: "https://www.cms.gov/medicare-coverage-database/view/article.aspx?articleid=56853", note: "The DEX Z-Code identifier requirement" },
+            { type: "NCD/LCD", ref: "MolDX: Targeted and Comprehensive Genomic Profile NGS Testing in Cancer (A54901)", effective: "Ongoing", url: "https://www.cms.gov/medicare-coverage-database/view/article.aspx?articleId=54901", note: "Which CPT code goes with which kind of panel" },
+        ],
+        verifyHint: "MolDX applies in some MAC jurisdictions and not others — confirm yours before assuming a Z-code is needed, or that it isn't.",
+    },
+    {
+        code: "NGS testing in advanced cancer", isConcept: true, specCodes: GENETICS, tag: "Genetics & Genomics",
+        title: "What NCD 90.2 asks for before it pays",
+        pos: [{ code: "81", note: "Independent laboratory" }, { code: "22", note: "Hospital outpatient" }],
+        modifiers: [{ mod: "GA", when: "ABN held where the patient's stage or history may fall outside the NCD" }],
+        units: "One test per patient per primary diagnosis of cancer, unless a new primary cancer is diagnosed.",
+        dx: [
+            ["C##.x stage III or IV", "Recurrent, relapsed, refractory, metastatic or advanced stage III/IV cancer"],
+            ["Z85.x", "Personal history, where a new primary is suspected"],
+        ],
+        dxNote: "The stage is the gate. A claim that doesn't establish advanced disease invites the denial, however sensible the testing was.",
+        why: "NCD 90.2 covers next-generation sequencing for patients with advanced cancer — recurrent, relapsed, refractory, metastatic, or advanced stage III or IV — who have not been tested with the same test for the same primary diagnosis, and who are seeking further treatment. The test has to be FDA-approved or cleared as a companion diagnostic with an indication matching the patient's cancer, performed in a CLIA-certified laboratory and ordered by the treating physician, with results returned to guide treatment. Outside those bounds, coverage falls to the MAC's discretion.",
+        docs: "The stage and line of therapy, the specific assay used and its regulatory status, the treating physician's order, and the treatment decision the result informed.",
+        sources: [
+            { type: "NCD/LCD", ref: "NCD 90.2 — Next Generation Sequencing", effective: "Ongoing", url: "https://www.cms.gov/medicare-coverage-database/view/ncd.aspx?ncdid=372", note: "Coverage criteria for NGS in advanced cancer" },
+            { type: "NCD/LCD", ref: "MolDX NGS billing articles", effective: "Varies by MAC", url: "https://www.cms.gov/medicare-coverage-database", note: "How the NCD is applied locally" },
+        ],
+        verifyHint: "Germline testing has its own criteria inside the NCD — read the section that matches the test before quoting coverage to a clinician.",
+    },
 ];
 /* ============================================================
    AI CHECK AGAINST CMS  — inline only, never a top-level search
@@ -2206,6 +2396,15 @@ function setAiAuth(a) {
                 : null;
 }
 const aiOnline = () => !!(SHEET_API && AI_AUTH);
+/* On the published site the sheet is the only AI route. If there is no
+   signed-in identity to send with the question, say that plainly rather
+   than quietly trying the old direct route and failing with a vague
+   "check your connection". */
+function aiNoIdentity() {
+    const e = new Error("Your sign-in didn't travel with the question. Sign out, sign in again, then ask once more.");
+    e.code = "SESSION_ENDED";
+    return e;
+}
 async function aiViaSheet(payload) {
     const data = await callSheet("aiAsk", { ...payload, ...(AI_AUTH || {}) });
     const text = String((data && data.text) || "").trim();
@@ -2269,6 +2468,8 @@ function extractJson(raw) {
 async function chatWithAstra(history) {
     if (aiOnline())
         return aiViaSheet({ kind: "chat", messages: history.slice(-16) });
+    if (SHEET_API)
+        throw aiNoIdentity();
     const url = API_BASE || "https://api.anthropic.com/v1/messages";
     const headers = { "Content-Type": "application/json" };
     if (API_BASE)
@@ -2315,6 +2516,8 @@ async function askCms(topic) {
             throw new Error("couldn't read the AI response after 2 attempts");
         return parsed;
     }
+    if (SHEET_API)
+        throw aiNoIdentity();
     const prompt = `You are a CMS coding-rules researcher for a US medical billing (RCM) company. Using web search on cms.gov and other authoritative sources, give the CURRENT Medicare rules for: "${topic}".
 
 Return ONLY a compact JSON object (no markdown fences, no preamble, nothing after it):
@@ -4275,6 +4478,8 @@ function CodeLookup({ cms, setCms, restoring }) {
     const rvuSet = sets.rvu;
     const mueSet = sets.mue[cms.claimType] || null;
     const anyData = cms.rvu.length > 0 || cms.mue.length > 0 || dmeposList.length > 0 || !!cms.sample;
+    // Only the built-in sample is loaded, so a miss usually means exactly that.
+    const sampleOnly = !!cms.sample && !cms.rvu.length && !cms.mue.length && !dmeposList.length;
     /* Every code in force on the date, from every file loaded — the
        fee schedule, the DMEPOS fee schedule and all three MUE tables —
        so DME items that aren't on the physician fee schedule are found. */
@@ -4430,18 +4635,46 @@ function CodeLookup({ cms, setCms, restoring }) {
                 React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 8, lineHeight: 1.6 } },
                     "Search one code, a range like ",
                     React.createElement("b", null, "44950-44979"),
-                    ", several separated by commas, the start of a code, or words from its description. DME items (E, K, L and more) are found from the DME MUE and DMEPOS files.")),
+                    ", several separated by commas, the start of a code, or words from its description. DME items (E, K, L and more) are found from the DME MUE and DMEPOS files.",
+                    sampleOnly && React.createElement(React.Fragment, null,
+                        React.createElement("br", null),
+                        React.createElement("b", { style: { color: C.warn } }, "Sample only:"),
+                        " until you load a CMS file, the only codes here are the ",
+                        SAMPLE_CODES.length,
+                        " sample DME items \u2014 try ",
+                        React.createElement("b", null, "E0601"),
+                        ", ",
+                        React.createElement("b", null, "K0001"),
+                        " or ",
+                        React.createElement("b", null, "mask"),
+                        "."))),
             raw && results.length === 0 && (React.createElement("div", { style: { background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 10, padding: 22 } },
                 React.createElement("div", { style: { fontSize: 14.5, fontWeight: 800, color: C.navy } },
                     "Nothing found for \"",
                     raw,
                     "\""),
-                React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 8, lineHeight: 1.65 } },
+                sampleOnly ? (React.createElement(React.Fragment, null,
+                    React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 8, lineHeight: 1.65 } },
+                        "No CMS file is loaded yet, so the only codes to search are the ",
+                        React.createElement("b", null,
+                            SAMPLE_CODES.length,
+                            " sample DME items"),
+                        " \u2014 and \"",
+                        raw,
+                        "\" isn't one of them. These are:"),
+                    React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 } }, SAMPLE_CODES.map((x) => (React.createElement("button", { key: x.code, onClick: () => { setQ(x.code); setSelected(""); }, style: {
+                            background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 999, padding: "6px 12px",
+                            fontSize: 12.5, fontWeight: 800, color: C.teal, cursor: "pointer",
+                        } }, x.code)))),
+                    React.createElement("div", { style: { fontSize: 13, color: C.ink, marginTop: 12, lineHeight: 1.65 } },
+                        "To search ",
+                        React.createElement("b", null, "every"),
+                        " code \u2014 CPT, dental D codes, everything else \u2014 load the CMS files at the top of this tab. It takes a minute, once per computer."))) : (React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 8, lineHeight: 1.65 } },
                     "It isn't in any file you've loaded. For DME, prosthetics, orthotics and supplies (E, K, L and most A codes), load the ",
                     React.createElement("b", null, "DME Supplier MUE"),
                     " table \u2014 and the ",
                     React.createElement("b", null, "DMEPOS fee schedule"),
-                    " for descriptions and fees \u2014 because those items aren't on the physician fee schedule. Also check the year of your files; deleted codes drop out."))),
+                    " for descriptions and fees \u2014 because those items aren't on the physician fee schedule. Also check the year of your files; deleted codes drop out.")))),
             results.length > 1 && !selected && (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" } },
                 React.createElement("div", { style: { padding: "12px 16px", borderBottom: `1px solid ${C.line}`, fontSize: 13.5, fontWeight: 800, color: C.navy } },
                     results.length >= 200 ? "First 200 matches" : `${results.length} matches`,
@@ -4551,7 +4784,7 @@ function CodeLookup({ cms, setCms, restoring }) {
    ============================================================ */
 /* Google Sheets endpoint — your Apps Script Web app URL (ends in /exec).
    Leave it empty to try everything in a throwaway demo mode. */
-const SHEET_API = "https://script.google.com/macros/s/AKfycbyYtNDafBM-dp1QASe2xwjcdkyBT84AtiNi5fqLcTQ3icRwG_v3_o55nZZB-QDecLhL/exec";
+const SHEET_API = "https://script.google.com/macros/s/AKfycbwVFivGGb7Mjl9Mer8nbGqWP4ZX1y5atShNh1goqoPaiZvGgXCMWwOXQzcJb_UnvtDT/exec";
 /* Sign-in gate.
    false -> app opens straight away. Use this inside Claude, where
             browser storage is blocked and calls to Google can't be made.
@@ -4849,7 +5082,8 @@ function friendlyAiError(err) {
         return msg + " (An administrator can fix this on the AI tab.)";
     }
     if (code === "AI_BUSY" || code === "AI_DOWN" || /couldn't reach|Failed to fetch|NetworkError|connection/i.test(msg)) {
-        return msg && code ? msg : "Couldn't reach the AI service. Check your connection and try again.";
+        return msg && code ? msg
+            : "The question didn't get through to the sheet. Try again — if it keeps happening, an administrator can press \"Test it\" on the AI tab to see the real reason.";
     }
     if (/unknown action/i.test(msg)) {
         return "The sheet's script needs updating before AI works: publish a new version in Apps Script (Deploy → Manage deployments → Edit → Version: New version).";
