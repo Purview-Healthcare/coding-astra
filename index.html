@@ -561,7 +561,7 @@ function HeroGreeting({ account, tip, onShowTip }) {
     if (account && account.justActivated)
         sub = "Your account is ready. Search any CPT or HCPCS code below — every rule is traced to its CMS source.";
     else if (isAdmin)
-        sub = "You're signed in as administrator — accounts and activation status are on the Admin tab.";
+        sub = "You're signed in as administrator — accounts, usage and settings are on the Admin tab.";
     else if (isUser && sinceText(prevVisit, Date.now()))
         sub = `Welcome back — you were last here ${sinceText(prevVisit, Date.now())}.`;
     else if (isUser && prevVisit)
@@ -1904,7 +1904,7 @@ const RULES = [
         units: "95004 percutaneous tests are billed per test, one unit per allergen — this is one of the few places unit counts run high legitimately. 95115 is a single injection, 95117 two or more. 95165 is per dose prepared from a multi-dose vial.",
         dx: [["J30.x", "Allergic rhinitis"], ["J45.x", "Asthma"], ["L20.x", "Atopic dermatitis"], ["T78.40xA", "Allergy, unspecified"]],
         dxNote: "The tested allergens should relate to the documented symptoms. Broad panels without a clinical rationale are the usual target of allergy audits.",
-        why: "Unit counting is the whole issue. Testing is per allergen, so a 40-allergen panel is 40 units — and MUE limits apply, which is exactly the kind of thing the Code lookup tab will tell you. On the immunotherapy side, 95165 is billed per dose prepared rather than per injection given, so preparation and administration are billed at different times and frequently confused.",
+        why: "Unit counting is the whole issue. Testing is per allergen, so a 40-allergen panel is 40 units — and the MUE limit for the code applies, so check it before billing. On the immunotherapy side, 95165 is billed per dose prepared rather than per injection given, so preparation and administration are billed at different times and frequently confused.",
         docs: "Each allergen tested with its result, the clinical indication, and for immunotherapy the number of doses prepared and the administration record.",
         sources: [
             { type: "NCD/LCD", ref: "MAC allergy testing and immunotherapy LCDs", effective: "Varies by MAC", url: "https://www.cms.gov/medicare-coverage-database", note: "Covered indications and test-count limits" },
@@ -2580,331 +2580,12 @@ Hard limits so the JSON is never truncated: at most 3 sources, short strings, no
    Decodes the raw codes in the MPFS RVU file into plain English
    plus the billing action they imply.
    ============================================================ */
-const STATUS_CODES = {
-    A: ["Active code", "Separately payable under the fee schedule when covered."],
-    B: ["Bundled code", "Payment is always bundled into another service. Never separately payable — billing it alone will not pay."],
-    C: ["Carrier-priced", "Your MAC establishes the price. Expect manual pricing and possible documentation requests."],
-    D: ["Deleted code", "No longer valid. Check the current CPT/HCPCS for the replacement."],
-    E: ["Excluded by regulation", "Excluded from the fee schedule by regulation. Not payable by Medicare."],
-    F: ["Deleted / discontinued", "No longer on the fee schedule."],
-    G: ["Not valid for Medicare", "Medicare uses another code for this service."],
-    H: ["Deleted modifier", "This code/modifier combination is no longer valid."],
-    I: ["Not valid for Medicare", "Medicare uses another code for reporting and paying this service."],
-    J: ["Anesthesia service", "Priced under the anesthesia methodology, not the standard RVU formula."],
-    L: ["Local code", "Local carrier code."],
-    M: ["Measurement code", "Quality measurement code — not payable."],
-    N: ["Non-covered service", "Not covered by Medicare. Consider an ABN and modifier GA or GY."],
-    P: ["Bundled or excluded", "Bundled into another service or excluded from coverage."],
-    Q: ["Therapy functional code", "Therapy functional information reporting."],
-    R: ["Restricted coverage", "Covered only under special circumstances."],
-    T: ["Injection-type code", "Paid only if there are no other services payable on the same date by the same provider."],
-    X: ["Statutory exclusion", "Excluded by statute — never a Medicare benefit. Bill the patient or secondary; consider GY."],
-};
-const GLOBAL_DAYS = {
-    "000": ["Minor procedure — no post-op period", "Same-day E/M is generally bundled. Use modifier 25 on the E/M only when it is significant and separately identifiable."],
-    "010": ["Minor procedure — 10 post-op days", "Related E/M in the next 10 days is bundled. Use 24 for an unrelated E/M, 58 for a staged procedure, 79 for an unrelated one."],
-    "090": ["Major surgery — 1 pre-op + 90 post-op days", "Use modifier 57 on the E/M that led to the decision for surgery. Inside the global use 24, 58, 78 or 79."],
-    MMM: ["Maternity code", "The usual global surgery concept does not apply to maternity services."],
-    XXX: ["Global concept does not apply", "No global period — no global-period modifiers needed."],
-    YYY: ["Carrier-determined global", "Your MAC sets the global period. Check the LCD or ask the MAC before billing post-op services."],
-    ZZZ: ["Add-on code", "Global period is included in the primary procedure's global. Always bill with its parent code."],
-};
-const PCTC_IND = {
-    "0": ["Physician service code", "No professional/technical split. Do not use modifier 26 or TC."],
-    "1": ["Diagnostic test — PC/TC split allowed", "Use 26 for interpretation only, TC for the technical portion, or no modifier for the global service."],
-    "2": ["Professional component only", "This code is already interpretation-only. Do not add modifier 26."],
-    "3": ["Technical component only", "This code is already technical-only. Do not add modifier TC."],
-    "4": ["Global test only code", "Represents the complete test — the PC and TC are billed with their own separate codes."],
-    "5": ["Incident-to code", "Service furnished incident to a physician's service. No PC/TC split."],
-    "6": ["Laboratory physician interpretation", "Use modifier 26 for the pathologist's interpretation."],
-    "7": ["Physical therapy service", "Payment cannot be made if the service is provided to a hospital inpatient or outpatient."],
-    "8": ["Physician interpretation code", "Interpretation of a clinical laboratory test for a hospital patient."],
-    "9": ["Concept does not apply", "PC/TC split is not relevant for this code."],
-};
-const BILAT_IND = {
-    "0": ["Bilateral adjustment does NOT apply", "Do not use modifier 50. Either the code is inherently unilateral with no bilateral payment, or the anatomy does not permit it."],
-    "1": ["Bilateral adjustment APPLIES — use modifier 50", "Bill one line, one unit, with modifier 50. Medicare pays 150% of the allowable. Billing two lines will deny as a duplicate."],
-    "2": ["Already bilateral — no adjustment", "The RVUs already represent a bilateral procedure. Do NOT add modifier 50 and do not bill two units."],
-    "3": ["Paid for each side separately", "Usually radiology and some diagnostic tests. Bill separate LT and RT lines (or 2 units) rather than modifier 50 — each side pays in full."],
-    "9": ["Concept does not apply", "Bilateral surgery rules are not relevant for this code."],
-};
-const ASST_IND = {
-    "0": ["Assistant payable ONLY with documentation", "Payment restriction applies. An assistant may be paid only when medical necessity is documented in the operative note."],
-    "1": ["Assistant NOT payable", "Medicare will not pay an assistant at surgery for this code. Billing 80, 81, 82 or AS will deny."],
-    "2": ["Assistant payable", "An assistant at surgery may be paid. Use 80, 81 or 82 for a physician, AS for a PA, NP or CNS."],
-    "9": ["Concept does not apply", "Assistant-at-surgery rules are not relevant for this code."],
-};
-const COSURG_IND = {
-    "0": ["Co-surgeons NOT permitted", "Modifier 62 will deny for this code."],
-    "1": ["Co-surgeons payable with documentation", "Medical necessity for two surgeons must be documented by both."],
-    "2": ["Co-surgeons permitted", "No documentation required if the two surgeons are of different specialties. Both bill with modifier 62."],
-    "9": ["Concept does not apply", "Co-surgery rules are not relevant for this code."],
-};
-const TEAM_IND = {
-    "0": ["Team surgery NOT permitted", "Modifier 66 will deny for this code."],
-    "1": ["Team surgery payable with documentation", "Medical necessity for a surgical team must be documented."],
-    "2": ["Team surgery permitted", "Modifier 66 may be used."],
-    "9": ["Concept does not apply", "Team surgery rules are not relevant for this code."],
-};
-const MULT_IND = {
-    "0": ["No multiple procedure adjustment", "Paid at full allowable regardless of other procedures the same day."],
-    "1": ["Standard adjustment does not apply", "Historic indicator — no reduction applied."],
-    "2": ["Standard multiple procedure adjustment", "When billed with other surgical procedures, the highest-valued pays 100% and the rest at 50%. Modifier 51 may be required by the payer."],
-    "3": ["Special endoscopy rules", "Endoscopic base-code rules apply rather than the standard 50% reduction."],
-    "4": ["Diagnostic imaging reduction", "Technical component reduction applies when multiple imaging services in the same family are furnished the same session."],
-    "5": ["Therapy practice expense reduction", "Multiple procedure payment reduction applies to the practice expense of therapy services."],
-    "6": ["Diagnostic cardiovascular reduction", "TC reduction applies for multiple cardiovascular services in the same session."],
-    "7": ["Diagnostic ophthalmology reduction", "TC reduction applies for multiple ophthalmology services in the same session."],
-    "9": ["Concept does not apply", "Multiple procedure rules are not relevant for this code."],
-};
-const MAI_MEANING = {
-    "1": ["Claim line edit", "The cap applies per claim line. Units above the cap on one line deny, but appropriate modifiers on separate lines can allow the additional units."],
-    "2": ["Date of service edit — Policy", "An absolute limit based on statute, regulation or anatomy. It cannot be bypassed with modifiers and is not appealable."],
-    "3": ["Date of service edit — Clinical", "Based on clinical benchmarks. Units above the cap deny, but the denial CAN be appealed with documentation supporting the higher units."],
-};
-/* ============================================================
-   CSV PARSING
-   ============================================================ */
-function parseCsv(input) {
-    const text = String(input == null ? "" : input);
-    const rows = [];
-    let row = [], field = "", inQuotes = false, quoted = false;
-    for (let i = text.charCodeAt(0) === 0xFEFF ? 1 : 0; i < text.length; i++) {
-        const ch = text[i];
-        if (inQuotes) {
-            if (ch === '"') {
-                if (text[i + 1] === '"') {
-                    field += '"';
-                    i++;
-                }
-                else
-                    inQuotes = false;
-            }
-            else
-                field += ch;
-            continue;
-        }
-        // A quote opens a quoted section only at the start of a field (spaces
-        // before it are allowed). Anywhere else it's an ordinary character,
-        // like the inch mark in 12" — so one stray quote can't swallow rows.
-        if (ch === '"' && !quoted && !field.trim()) {
-            inQuotes = true;
-            quoted = true;
-            field = "";
-            continue;
-        }
-        if (ch === ",") {
-            row.push(field);
-            field = "";
-            quoted = false;
-            continue;
-        }
-        // Rows can end with CRLF (Windows), LF, or a bare CR — CMS's July 2025
-        // PPRRVU file uses bare CRs.
-        if (ch === "\r" || ch === "\n") {
-            if (ch === "\r" && text[i + 1] === "\n")
-                i++;
-            row.push(field);
-            rows.push(row);
-            row = [];
-            field = "";
-            quoted = false;
-            continue;
-        }
-        field += ch;
-    }
-    if (field.length || row.length) {
-        row.push(field);
-        rows.push(row);
-    }
-    return rows;
-}
-/* CMS files are usually plain ASCII/UTF-8, but a few carry a stray
-   Windows-1252 byte (a ® in a header note, an accented letter in a
-   description). Read as UTF-8 when the bytes are valid UTF-8, otherwise as
-   Windows-1252, so those characters show properly instead of as �. */
-function decodeFileBytes(buf) {
-    try {
-        return new TextDecoder("utf-8", { fatal: true }).decode(buf);
-    }
-    catch (e) {
-        try {
-            return new TextDecoder("windows-1252").decode(buf);
-        }
-        catch (e2) {
-            return new TextDecoder("utf-8").decode(buf);
-        }
-    }
-}
 const norm = (v) => String(v == null ? "" : v).trim();
 const upper = (v) => norm(v).toUpperCase();
 /* PPRRVU: header row is the one whose first cell is HCPCS.
    Column order is fixed by CMS. */
-function parseRvu(text) {
-    const rows = parseCsv(text);
-    let h = -1;
-    for (let i = 0; i < Math.min(rows.length, 40); i++) {
-        if (upper(rows[i][0]) === "HCPCS") {
-            h = i;
-            break;
-        }
-    }
-    if (h === -1)
-        throw new Error("this doesn't look like a PPRRVU file — no HCPCS header row found");
-    const map = new Map();
-    let n = 0;
-    for (let i = h + 1; i < rows.length; i++) {
-        const r = rows[i];
-        const code = upper(r[0]);
-        if (!code || code.length < 4)
-            continue;
-        const rec = {
-            code,
-            mod: upper(r[1]),
-            desc: norm(r[2]),
-            status: upper(r[3]),
-            workRvu: norm(r[5]),
-            nonFacTotal: norm(r[11]),
-            facTotal: norm(r[12]),
-            pctc: norm(r[13]),
-            glob: upper(r[14]),
-            mult: norm(r[18]),
-            bilat: norm(r[19]),
-            asst: norm(r[20]),
-            cosurg: norm(r[21]),
-            team: norm(r[22]),
-        };
-        if (!map.has(code))
-            map.set(code, []);
-        map.get(code).push(rec);
-        n++;
-    }
-    if (!n)
-        throw new Error("no data rows found in the RVU file");
-    return { map, count: n, codes: map.size };
-}
 /* MUE: header row's first cell starts with HCPCS (it contains a line break). */
-function parseMue(text) {
-    const rows = parseCsv(text);
-    let h = -1;
-    for (let i = 0; i < Math.min(rows.length, 40); i++) {
-        if (upper(rows[i][0]).replace(/\s+/g, "").startsWith("HCPCS")) {
-            h = i;
-            break;
-        }
-    }
-    if (h === -1)
-        throw new Error("this doesn't look like an MUE table — no HCPCS header row found");
-    const label = norm(rows[h][1]);
-    const map = new Map();
-    let n = 0;
-    for (let i = h + 1; i < rows.length; i++) {
-        const r = rows[i];
-        const code = upper(r[0]);
-        if (!code || code.length < 4)
-            continue;
-        const maiRaw = norm(r[2]);
-        map.set(code, {
-            value: norm(r[1]),
-            mai: (maiRaw.match(/^(\d)/) || [])[1] || "",
-            maiText: maiRaw,
-            rationale: norm(r[3]),
-        });
-        n++;
-    }
-    if (!n)
-        throw new Error("no data rows found in the MUE file");
-    return { map, count: n, label };
-}
-/* DMEPOS fee schedule (CMS, quarterly): HCPCS, modifiers, jurisdiction,
-   payment category, floor/ceiling, state fees and a short description.
-   Columns are found by their headings, so both the older "HCPCS CODE /
-   CATEGORY / SHORT DESCRIPTION" layout and the newer "HCPCS / CATG /
-   Description" one read. */
-/* A dozen HCPCS Level II items, so Code lookup answers something the
-   moment somebody opens it. HCPCS Level II descriptions are public
-   domain; CPT descriptions are AMA-licensed and never ship in this
-   page, which is why the full code set comes from the CMS file each
-   person loads. No fees and no unit limits are invented here — those
-   appear only once a real CMS file is in. */
-const SAMPLE_CODES = [
-    { code: "E0601", desc: "Continuous positive airway pressure (CPAP) device" },
-    { code: "E0470", desc: "Respiratory assist device, bi-level, without backup rate" },
-    { code: "E0431", desc: "Portable gaseous oxygen system, rental" },
-    { code: "E1390", desc: "Oxygen concentrator, single delivery port" },
-    { code: "E0143", desc: "Walker, folding, wheeled, adjustable or fixed height" },
-    { code: "E0114", desc: "Crutches, underarm, other than wood, adjustable or fixed, pair" },
-    { code: "K0001", desc: "Standard wheelchair" },
-    { code: "K0003", desc: "Lightweight wheelchair" },
-    { code: "E0260", desc: "Hospital bed, semi-electric, with any type side rails and mattress" },
-    { code: "A7030", desc: "Full face mask used with positive airway pressure device" },
-    { code: "A7034", desc: "Nasal interface used with positive airway pressure device" },
-    { code: "A4253", desc: "Blood glucose test or reagent strips, per 50 strips" },
-    { code: "L0650", desc: "Lumbar-sacral orthosis, sagittal-coronal control, prefabricated, off the shelf" },
-    { code: "E0163", desc: "Commode chair, stationary, with fixed arms" },
-];
 const STATE_ABBR = new Set("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR VI GU AS MP".split(" "));
-function parseDmepos(text) {
-    const rows = parseCsv(text);
-    const clean = (x) => upper(x).replace(/\s+/g, " ").trim();
-    let h = -1, cols = null;
-    for (let i = 0; i < Math.min(rows.length, 40); i++) {
-        const hdr = rows[i].map(clean);
-        const find = (test) => hdr.findIndex(test);
-        const code = find((x) => x === "HCPCS" || x === "HCPCS CODE" || x === "HCPC");
-        const catg = find((x) => x === "CATG" || x === "CATEGORY" || x === "PAYMENT CATEGORY");
-        if (code < 0 || catg < 0)
-            continue;
-        h = i;
-        const states = [];
-        hdr.forEach((x, idx) => {
-            const m = x.match(/^([A-Z]{2}) ?\((NR|R)\)$/);
-            if (m && STATE_ABBR.has(m[1]))
-                states.push([m[1] + (m[2] === "R" ? " rural" : ""), idx]);
-            else if (STATE_ABBR.has(x))
-                states.push([x, idx]);
-        });
-        cols = {
-            code, catg, states,
-            mod: find((x) => x === "MOD" || x === "MOD1" || x === "1ST MODIFIER" || x === "MODIFIER" || x === "MODIFIER 1"),
-            mod2: find((x) => x === "MOD2" || x === "2ND MODIFIER" || x === "MODIFIER 2"),
-            juris: find((x) => /^JURIS/.test(x)),
-            ceiling: find((x) => x === "CEILING"),
-            floor: find((x) => x === "FLOOR"),
-            desc: find((x) => /DESC/.test(x)),
-        };
-        break;
-    }
-    if (h < 0)
-        throw new Error("this doesn't look like a DMEPOS fee schedule — no HCPCS and category columns found");
-    const at = (r, i) => (i >= 0 ? norm(r[i]) : "");
-    const map = new Map();
-    let n = 0;
-    for (let i = h + 1; i < rows.length; i++) {
-        const r = rows[i];
-        const code = upper(r[cols.code]);
-        if (!/^[A-Z]\d{4}$/.test(code))
-            continue;
-        const fees = {};
-        cols.states.forEach(([st, idx]) => { const v = norm(r[idx]); if (v)
-            fees[st] = v; });
-        const rec = {
-            code, mod: upper(at(r, cols.mod)), mod2: upper(at(r, cols.mod2)), juris: upper(at(r, cols.juris)),
-            catg: upper(at(r, cols.catg)), ceiling: at(r, cols.ceiling), floor: at(r, cols.floor),
-            desc: at(r, cols.desc), fees,
-        };
-        if (!map.has(code))
-            map.set(code, []);
-        map.get(code).push(rec);
-        n++;
-    }
-    if (!n)
-        throw new Error("no data rows found in the DMEPOS file");
-    return { map, count: n, codes: map.size };
-}
-/* ============================================================
-   LOGO
-   ============================================================ */
 const PurviewLogo = ({ h = 46 }) => React.createElement("img", { src: LOGO_URI, alt: "Purview Healthcare", style: { height: h, display: "block" } });
 /* ============================================================
    UI PIECES
@@ -3087,7 +2768,7 @@ function RuleModPos({ r }) {
                     ":"),
                 " ",
                 g.why)))))),
-        React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 8, lineHeight: 1.55 } }, "Load the CMS file on the Code lookup tab to also see the rules that come from each code's own payment indicators \u2014 bilateral, assistant at surgery, global period and the rest.")));
+        React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 8, lineHeight: 1.55 } }, "Each code also carries its own payment indicators at CMS \u2014 bilateral, assistant at surgery, global period and the rest. Check those in the fee schedule for the date of service.")));
 }
 function RuleCard({ r }) {
     const [open, setOpen] = useState(false);
@@ -3240,103 +2921,6 @@ function CmsSources() {
 
    MUE also comes in three flavours (Practitioner, DME, Facility)
    and the caps differ, so the claim type has to be chosen too.
-   ============================================================ */
-const MONTHS = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
-/* Work out what a file is and when it took effect. CMS is not
-   consistent about naming, so check the content as well. */
-function detectDataset(fileName, text) {
-    const n = String(fileName || "");
-    const head = String(text || "").slice(0, 4000).toUpperCase();
-    // --- DMEPOS fee schedule: DMEPOS26_JAN.csv and similar. Checked first,
-    //     because its header also has an HCPCS column. ---
-    const dmeposHead = /(^|[",\s])(CATG|CATEGORY)([",\s]|$)/.test(head) && /CEILING/.test(head) && /FLOOR/.test(head);
-    if ((/DMEPOS|DMEPEN/i.test(n) || dmeposHead) && !/MUE/i.test(n) && !/MUE VALUES/.test(head)) {
-        let effective = null;
-        const a = n.match(/DME(?:POS|PEN)?[_-]?(\d{4}|\d{2})[_-]?([A-Z]{3})/i);
-        const b = n.match(/([A-Z]{3})[_-]?(\d{4}|\d{2})/i);
-        const pick = (yr, mon) => {
-            const m = MONTHS[String(mon).toUpperCase()];
-            if (m === undefined)
-                return null;
-            return new Date(yr.length === 4 ? +yr : 2000 + +yr, m, 1);
-        };
-        if (a)
-            effective = pick(a[1], a[2]);
-        if (!effective && b)
-            effective = pick(b[2], b[1]);
-        return { kind: "dmepos", table: "DMEPOS", effective, label: "DMEPOS fee schedule" };
-    }
-    // --- MUE: date sits in the filename as MM-DD-YYYY ---
-    if (/MUE/i.test(n) || /MUE VALUES/i.test(head)) {
-        const d = n.match(/(\d{2})[-_](\d{2})[-_](\d{4})/);
-        const effective = d ? new Date(+d[3], +d[1] - 1, +d[2]) : null;
-        let table = "Practitioner";
-        if (/DME|DURABLE/i.test(head) || /DME/i.test(n))
-            table = "DME";
-        else if (/OUTPATIENT|FACILITY/i.test(head) || /FACILITY|OUTPATIENT/i.test(n))
-            table = "Facility";
-        return { kind: "mue", table, effective, label: table + " MUE" };
-    }
-    // --- RVU: PPRRVU26_JAN, PPRRVU2026_Jan_nonQPP, PPRRVU20_V0618 ---
-    if (/PPRRVU/i.test(n) || /GLOB\s*DAYS/i.test(head) || /HCPCS/i.test(head)) {
-        let effective = null;
-        const q = n.match(/PPRRVU(\d{4}|\d{2})[_-]?([A-Z][a-z]{2}|[A-Z]{3})/i);
-        if (q) {
-            let yr = q[1].length === 4 ? +q[1] : 2000 + +q[1];
-            const mon = MONTHS[q[2].toUpperCase()];
-            if (mon !== undefined)
-                effective = new Date(yr, mon, 1);
-        }
-        if (!effective) {
-            // mid-quarter reissues, e.g. PPRRVU20_V0618
-            const v = n.match(/PPRRVU(\d{4}|\d{2})[_-]?V(\d{2})(\d{2})/i);
-            if (v) {
-                const yr = v[1].length === 4 ? +v[1] : 2000 + +v[1];
-                effective = new Date(yr, +v[2] - 1, +v[3]);
-            }
-        }
-        const qpp = /[_-]QPP/i.test(n) && !/NONQPP/i.test(n);
-        return { kind: "rvu", table: qpp ? "QPP" : "all codes", effective, label: "Fee schedule" };
-    }
-    return { kind: null, table: null, effective: null, label: "Unrecognised" };
-}
-const fmtEff = (d) => {
-    if (!(d instanceof Date) || isNaN(d))
-        return "date unknown";
-    return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-};
-/* The right dataset for a date of service is the newest one that
-   took effect on or before it. With no date given, use the newest. */
-function pickDataset(list, dos, table) {
-    let pool = list || [];
-    if (table)
-        pool = pool.filter((x) => x.table === table);
-    if (!pool.length)
-        return null;
-    const sorted = pool.slice().sort((a, b) => (b.effective || 0) - (a.effective || 0));
-    if (!dos)
-        return sorted[0];
-    const onOrBefore = sorted.filter((x) => x.effective && x.effective <= dos);
-    // A date older than everything loaded falls back to the oldest held,
-    // flagged so nobody mistakes it for an exact match.
-    if (!onOrBefore.length)
-        return { ...sorted[sorted.length - 1], tooOld: true };
-    return onOrBefore[0];
-}
-/* ============================================================
-   MODIFIER x PLACE OF SERVICE COMPATIBILITY
-   ------------------------------------------------------------
-   CMS does not publish one table of valid modifier/POS pairs.
-   These rules are assembled from the Claims Processing Manual,
-   the Benefit Policy Manual, the telehealth rules and the
-   definitions of the codes themselves. Each verdict says which
-   it is, so nothing looks more official than it is.
-
-   Verdicts:
-     ok         normal, expected pairing
-     caution    payable only in defined circumstances
-     no         the combination contradicts itself and will deny
-     unknown    no documented restriction either way
    ============================================================ */
 const TELE_POS = ["02", "10"];
 const FACILITY_POS = ["19", "21", "22", "23", "24", "31", "51", "52", "56", "61"];
@@ -3657,81 +3241,6 @@ const MOD_POS_POLICIES = [
    This runs before the place-of-service rules, because if a code has
    no professional/technical split then modifier 26 is wrong in every
    setting, not just some of them. */
-function codeModVerdict(base, mod) {
-    if (!base)
-        return null;
-    const m = String(mod).toUpperCase();
-    const G = base.glob, P = base.pctc, B = base.bilat, A = base.asst;
-    if (m === "26" || m === "TC") {
-        if (P === "0" || P === "9")
-            return ["no", `This code has no professional/technical split (CMS PC/TC indicator ${P}), so ${m} does not belong on it in any setting.`];
-        if (P === "2" && m === "TC")
-            return ["no", "This code is already the professional component only. There is no technical component to bill."];
-        if (P === "2" && m === "26")
-            return ["no", "This code is already interpretation-only, so adding 26 duplicates what the code says."];
-        if (P === "3" && m === "26")
-            return ["no", "This code is already the technical component only. There is no interpretation to bill."];
-        if (P === "3" && m === "TC")
-            return ["no", "This code is already technical-only, so adding TC duplicates what the code says."];
-    }
-    if (m === "50") {
-        if (B === "0")
-            return ["no", "CMS bilateral indicator 0 for this code — the 150% bilateral adjustment does not apply, so modifier 50 will deny."];
-        if (B === "2")
-            return ["no", "CMS bilateral indicator 2 — the payment already represents a bilateral procedure. Adding 50 or a second unit is a duplicate."];
-        if (B === "3")
-            return ["no", "CMS bilateral indicator 3 — each side is paid in full. Bill separate LT and RT lines instead of modifier 50."];
-        if (B === "9")
-            return ["no", "The bilateral concept does not apply to this code."];
-    }
-    if (m === "LT" || m === "RT") {
-        if (B === "3")
-            return ["ok", "CMS bilateral indicator 3 — each side pays in full, so LT and RT on separate lines is the correct way to report both sides."];
-        if (B === "1")
-            return ["caution", "CMS bilateral indicator 1 — Medicare wants one line with modifier 50. Some commercial payers want LT/RT lines instead, so follow the payer."];
-    }
-    if (["80", "81", "82", "AS"].includes(m)) {
-        if (A === "1")
-            return ["no", "CMS assistant-at-surgery indicator 1 — an assistant is never payable for this code. This modifier will deny."];
-        if (A === "9")
-            return ["no", "The assistant-at-surgery concept does not apply to this code."];
-        if (A === "0")
-            return ["caution", "CMS assistant indicator 0 — payable only where the operative note documents why an assistant was medically necessary."];
-    }
-    if (m === "62") {
-        if (base.cosurg === "0" || base.cosurg === "9")
-            return ["no", `CMS co-surgery indicator ${base.cosurg} — co-surgeons are not payable for this code.`];
-        if (base.cosurg === "1")
-            return ["caution", "CMS co-surgery indicator 1 — payable when both surgeons document why two were needed."];
-    }
-    if (m === "66") {
-        if (base.team === "0" || base.team === "9")
-            return ["no", `CMS team surgery indicator ${base.team} — team surgery is not payable for this code.`];
-    }
-    if (["95", "93", "FQ", "GT", "G0"].includes(m)) {
-        if (G === "090" || G === "010") {
-            return ["no", `This code carries a ${G}-day global period, which means it is a procedure performed in person. Telehealth modifiers do not apply to it in any place of service.`];
-        }
-        if (["1", "3", "4"].includes(P)) {
-            return ["no", "This code includes a technical component — equipment and staff at a physical location — so it cannot be furnished as a telehealth service. The definitive list is the CMS telehealth services list on the CMS sources tab."];
-        }
-    }
-    if (m === "57") {
-        if (G !== "090")
-            return ["no", `Modifier 57 marks the decision for major surgery, which means a 90-day global. This code's global period is ${G || "not set"}, so 57 does not apply.`];
-    }
-    if (["58", "78", "79", "24"].includes(m)) {
-        if (G === "XXX")
-            return ["no", "This code has no global period (XXX), so there is no global window for this modifier to break out of."];
-        if (G === "ZZZ")
-            return ["no", "This is an add-on code. Its global period belongs to the primary procedure, so global-period modifiers go on that code instead."];
-    }
-    if (m === "51") {
-        if (base.mult === "0" || base.mult === "9")
-            return ["no", "No multiple-procedure reduction applies to this code, so modifier 51 has no effect and some payers will reject it."];
-    }
-    return null; // nothing in the indicators objects — fall through to the POS rules
-}
 function modPosVerdict(mod, pos) {
     if (!mod || !pos)
         return null;
@@ -3750,28 +3259,6 @@ function modPosVerdict(mod, pos) {
     };
 }
 /* Modifiers that appear in the compatibility tool, flattened from the glossary. */
-const MOD_POS_LIST = (() => {
-    const out = [];
-    const seen = new Set();
-    MOD_GROUPS.forEach((g) => g.items.forEach(([code, name]) => {
-        String(code).split("/").forEach((part) => {
-            const c = part.trim().split(/[\s,]/)[0].replace(/[^A-Z0-9]/gi, "").toUpperCase();
-            if (!c || seen.has(c) || c.length > 2)
-                return;
-            seen.add(c);
-            out.push([c, name]);
-        });
-    }));
-    return out.sort((a, b) => a[0].localeCompare(b[0]));
-})();
-/* ============================================================
-   MATCHING CODES TO CURATED RULES
-   ------------------------------------------------------------
-   A rule's code field can be a single code ("44970"), a list
-   ("90832 / 90834 / 90837") or a range ("99202-99215"). Ranges
-   have to be expanded or a search for 99213 would never find the
-   E/M rule, since only the endpoints appear in the text.
-   ============================================================ */
 const DASHES = /[\u2010-\u2015\u2212-]/g; // hyphen, en, em, minus
 const normDash = (t) => String(t || "").replace(DASHES, "-");
 const _ruleCodeCache = new Map();
@@ -3819,972 +3306,8 @@ function ruleCovers(rule, code) {
    publishes late, this will say you're behind before anything
    exists. The banner says so rather than implying otherwise.
    ============================================================ */
-const CMS_LINKS = {
-    mue: "https://www.cms.gov/medicare/coding-billing/national-correct-coding-initiative-ncci-edits/medicare-ncci-medically-unlikely-edits-mues",
-    rvu: "https://www.cms.gov/medicare/payment/fee-schedules/physician/pfs-relative-value-files",
-    dmepos: "https://www.cms.gov/medicare/payment/fee-schedules/dmepos/dmepos-fee-schedule",
-};
 /* The quarter a date falls in, as its first day. */
-function quarterStart(d) {
-    const q = Math.floor(d.getMonth() / 3) * 3;
-    return new Date(d.getFullYear(), q, 1);
-}
-function quartersBehind(effective, now) {
-    if (!(effective instanceof Date) || isNaN(effective))
-        return null;
-    const a = quarterStart(effective), b = quarterStart(now);
-    return (b.getFullYear() - a.getFullYear()) * 4 + (Math.floor(b.getMonth() / 3) - Math.floor(a.getMonth() / 3));
-}
-function FreshnessBanner({ cms }) {
-    const now = new Date();
-    const newest = (list, table) => {
-        const pool = table ? list.filter((x) => x.table === table) : list;
-        if (!pool.length)
-            return null;
-        return pool.slice().sort((a, b) => (b.effective || 0) - (a.effective || 0))[0];
-    };
-    const lines = [
-        { key: "rvu", name: "Fee schedule", set: newest(cms.rvu), link: CMS_LINKS.rvu, needed: true,
-            note: "the rules that drive global period, bilateral, PC/TC and assistant" },
-        { key: "prac", name: "Practitioner MUE", set: newest(cms.mue, "Practitioner"), link: CMS_LINKS.mue, needed: true,
-            note: "unit caps for professional claims" },
-        { key: "dme", name: "DME MUE", set: newest(cms.mue, "DME"), link: CMS_LINKS.mue, needed: false,
-            note: "unit caps for DME supplier claims" },
-        { key: "fac", name: "Facility MUE", set: newest(cms.mue, "Facility"), link: CMS_LINKS.mue, needed: false,
-            note: "only needed for hospital outpatient claims" },
-        { key: "dmepos", name: "DMEPOS fee schedule", set: newest(cms.dmepos || []), link: CMS_LINKS.dmepos, needed: false,
-            note: "descriptions, payment category and fees for DME items" },
-    ];
-    const rows = lines.map((l) => {
-        if (!l.set) {
-            return { ...l, status: "none",
-                detail: l.needed ? "Not loaded — the app can't answer fully without it" : "Not loaded — " + l.note,
-                tag: l.needed ? "Needed" : "Optional" };
-        }
-        const behind = quartersBehind(l.set.effective, now);
-        const detail = fmtEff(l.set.effective) + " · " + l.set.codes.toLocaleString() + " codes";
-        if (behind === null)
-            return { ...l, status: "ok", detail, tag: "Loaded" };
-        if (behind <= 0)
-            return { ...l, status: "ok", detail, tag: "Current quarter" };
-        if (behind === 1)
-            return { ...l, status: "warn", detail, tag: "1 quarter old",
-                why: "One quarter behind. A newer table should be available from CMS." };
-        return { ...l, status: "old", detail, tag: behind + " quarters old",
-            why: behind + " quarters behind. Values may well have changed since." };
-    });
-    const stale = rows.filter((r) => r.status === "warn" || r.status === "old").length;
-    const anyLoaded = cms.rvu.length > 0 || cms.mue.length > 0 || (cms.dmepos || []).length > 0;
-    if (!anyLoaded)
-        return null;
-    const tone = {
-        ok: { icon: "\u2713", color: "#16A34A" },
-        warn: { icon: "!", color: C.warn },
-        old: { icon: "!", color: "#DC2626" },
-        none: { icon: "\u2013", color: C.soft },
-    };
-    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" } },
-        React.createElement("div", { style: { padding: "13px 16px", borderBottom: `1px solid ${C.line}`, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
-            React.createElement("span", { style: { fontSize: 15, fontWeight: 900, color: C.navy } }, "Your CMS data"),
-            stale > 0 ? (React.createElement("span", { style: { fontSize: 11.5, fontWeight: 800, background: C.warnBg, color: C.warn, padding: "2px 10px", borderRadius: 5, border: "1px solid #FCD9A8" } },
-                stale,
-                " ",
-                stale === 1 ? "file is" : "files are",
-                " behind")) : (React.createElement("span", { style: { fontSize: 11.5, fontWeight: 800, background: "#EFFBF4", color: "#166534", padding: "2px 10px", borderRadius: 5, border: "1px solid #BFE9D2" } }, "up to date")),
-            React.createElement("span", { style: { marginLeft: "auto", fontSize: 11.5, color: C.soft } },
-                "Checked against today, ",
-                now.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }))),
-        rows.map((r) => (React.createElement("div", { key: r.key, style: { display: "flex", gap: 10, padding: "11px 16px", borderBottom: `1px solid ${C.bg}`, alignItems: "flex-start" } },
-            React.createElement("span", { style: { width: 18, textAlign: "center", color: tone[r.status].color, fontWeight: 900, fontSize: 14, marginTop: 1 } }, tone[r.status].icon),
-            React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-                React.createElement("div", { style: { fontSize: 13.5, fontWeight: 700, color: C.ink } }, r.name),
-                React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 2 } }, r.detail),
-                r.why && React.createElement("div", { style: { fontSize: 12.5, color: tone[r.status].color, marginTop: 3, lineHeight: 1.5 } }, r.why)),
-            React.createElement("span", { style: { fontSize: 11.5, color: tone[r.status].color, whiteSpace: "nowrap", marginTop: 1 } }, r.tag)))),
-        React.createElement("div", { style: { padding: "12px 16px", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" } },
-            React.createElement("a", { href: CMS_LINKS.mue, target: "_blank", rel: "noreferrer", style: { fontSize: 13, color: C.teal, fontWeight: 700, textDecoration: "none" } }, "Get the latest MUE tables \u2197"),
-            React.createElement("a", { href: CMS_LINKS.rvu, target: "_blank", rel: "noreferrer", style: { fontSize: 13, color: C.teal, fontWeight: 700, textDecoration: "none" } }, "Get the latest fee schedule \u2197"),
-            React.createElement("a", { href: CMS_LINKS.dmepos, target: "_blank", rel: "noreferrer", style: { fontSize: 13, color: C.teal, fontWeight: 700, textDecoration: "none" } }, "Get the latest DMEPOS fees \u2197"),
-            React.createElement("span", { style: { marginLeft: "auto", fontSize: 11.5, color: C.soft } }, "Based on the quarter today falls in, not a live check of CMS"))));
-}
-/* ============================================================
-   SAVED CMS FILES
-   ------------------------------------------------------------
-   Each browser keeps the CMS files it has read (IndexedDB), so nobody
-   has to load them again on every visit. They stay on that computer —
-   nothing is uploaded — and the "Your CMS data" box says when CMS has
-   published newer ones.
-   ============================================================ */
-const SAVED_DB = "coding-astra-cms", SAVED_STORE = "files";
-function savedDb() {
-    return new Promise((resolve, reject) => {
-        try {
-            if (typeof indexedDB === "undefined" || !indexedDB) {
-                reject(new Error("storage unavailable"));
-                return;
-            }
-            const req = indexedDB.open(SAVED_DB, 1);
-            req.onupgradeneeded = () => {
-                const db = req.result;
-                if (!db.objectStoreNames.contains(SAVED_STORE))
-                    db.createObjectStore(SAVED_STORE, { keyPath: "id" });
-            };
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error || new Error("storage unavailable"));
-            req.onblocked = () => reject(new Error("storage busy"));
-        }
-        catch (e) {
-            reject(e);
-        }
-    });
-}
-function savedRun(mode, work) {
-    return savedDb().then((db) => new Promise((resolve, reject) => {
-        let out;
-        try {
-            const tx = db.transaction(SAVED_STORE, mode);
-            const req = work(tx.objectStore(SAVED_STORE));
-            if (req)
-                req.onsuccess = () => { out = req.result; };
-            tx.oncomplete = () => { db.close(); resolve(out); };
-            tx.onerror = () => { db.close(); reject(tx.error || new Error("storage error")); };
-            tx.onabort = () => { db.close(); reject(tx.error || new Error("storage write failed")); };
-        }
-        catch (e) {
-            db.close();
-            reject(e);
-        }
-    }));
-}
-const savedFiles = {
-    all: () => savedRun("readonly", (st) => st.getAll()).then((x) => (Array.isArray(x) ? x : [])),
-    put: (d) => savedRun("readwrite", (st) => st.put(d)),
-    remove: (id) => savedRun("readwrite", (st) => st.delete(id)),
-};
 /* One id per file kind, table and quarter: loading the same quarter again replaces it. */
-function datasetId(kind, table, effective, name) {
-    const ok = effective instanceof Date && !isNaN(effective);
-    const when = ok
-        ? effective.getFullYear() + "-" + String(effective.getMonth() + 1).padStart(2, "0") + "-" + String(effective.getDate()).padStart(2, "0")
-        : "undated:" + name;
-    return [kind, table, when].join("|");
-}
-function mergeDatasets(c, list) {
-    const rvu = c.rvu.slice(), mue = c.mue.slice(), dmepos = (c.dmepos || []).slice();
-    list.forEach((g) => {
-        const pool = g.kind === "rvu" ? rvu : g.kind === "mue" ? mue : g.kind === "dmepos" ? dmepos : null;
-        if (!pool || !g.map)
-            return;
-        const at = pool.findIndex((x) => (x.id && x.id === g.id) ||
-            (x.table === g.table && String(x.effective) === String(g.effective)));
-        if (at >= 0)
-            pool[at] = g;
-        else
-            pool.push(g);
-    });
-    const byDate = (a, b) => (b.effective || 0) - (a.effective || 0);
-    return { ...c, rvu: rvu.sort(byDate), mue: mue.sort(byDate), dmepos: dmepos.sort(byDate) };
-}
-function DatasetLoader({ cms, setCms, restoring }) {
-    const ref = useRef(null);
-    const [busy, setBusy] = useState(false);
-    const [notes, setNotes] = useState([]);
-    const [saveNote, setSaveNote] = useState(null);
-    const handle = (fileList) => {
-        const files = Array.from(fileList || []);
-        if (!files.length)
-            return;
-        setBusy(true);
-        setNotes([]);
-        let remaining = files.length;
-        const added = [];
-        files.forEach((file) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-                try {
-                    const text = decodeFileBytes(reader.result);
-                    const d = detectDataset(file.name, text);
-                    const id = datasetId(d.kind, d.table, d.effective, file.name);
-                    if (d.kind === "rvu") {
-                        const parsed = parseRvu(text);
-                        added.push({ id, kind: "rvu", name: file.name, table: d.table, effective: d.effective,
-                            map: parsed.map, codes: parsed.codes });
-                    }
-                    else if (d.kind === "mue") {
-                        const parsed = parseMue(text);
-                        added.push({ id, kind: "mue", name: file.name, table: d.table, effective: d.effective,
-                            map: parsed.map, codes: parsed.count, label: parsed.label });
-                    }
-                    else if (d.kind === "dmepos") {
-                        const parsed = parseDmepos(text);
-                        added.push({ id, kind: "dmepos", name: file.name, table: d.table, effective: d.effective,
-                            map: parsed.map, codes: parsed.codes });
-                    }
-                    else {
-                        added.push({ error: file.name + " — not a fee schedule, MUE or DMEPOS file" });
-                    }
-                }
-                catch (e) {
-                    added.push({ error: file.name + " — " + (e.message || "couldn't read it") });
-                }
-                if (--remaining === 0)
-                    finish(added);
-            };
-            reader.onerror = () => {
-                added.push({ error: file.name + " — couldn't read the file" });
-                if (--remaining === 0)
-                    finish(added);
-            };
-            reader.readAsArrayBuffer(file);
-        });
-        const finish = (list) => {
-            const errs = list.filter((x) => x.error).map((x) => x.error);
-            const good = list.filter((x) => !x.error);
-            // Same quarter and table loaded twice? Replace rather than duplicate.
-            setCms((c) => mergeDatasets(c, good));
-            setNotes(errs);
-            setBusy(false);
-            if (good.length) {
-                Promise.all(good.map((g) => savedFiles.put(g)))
-                    .then(() => setSaveNote({ ok: true, text: "Saved on this computer — you won't need to load these again." }))
-                    .catch(() => setSaveNote({ ok: false, text: "Couldn't save these on this computer (a private window, or storage is full). They'll work until you close this page." }));
-            }
-        };
-    };
-    const rows = [...cms.rvu.map((x) => ({ ...x, group: "Fee schedule" })),
-        ...cms.mue.map((x) => ({ ...x, group: x.table + " MUE" })),
-        ...(cms.dmepos || []).map((x) => ({ ...x, group: "DMEPOS fees" }))];
-    const remove = (row) => {
-        const gone = (x) => (row.id ? x.id === row.id : x.name === row.name);
-        setCms((c) => ({
-            ...c,
-            rvu: row.kind === "rvu" ? c.rvu.filter((x) => !gone(x)) : c.rvu,
-            mue: row.kind === "mue" ? c.mue.filter((x) => !gone(x)) : c.mue,
-            dmepos: row.kind === "dmepos" ? (c.dmepos || []).filter((x) => !gone(x)) : (c.dmepos || []),
-        }));
-        if (row.id)
-            savedFiles.remove(row.id).catch(() => { });
-    };
-    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 18 } },
-        React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "Load the CMS data files"),
-        React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, "Select as many CSVs as you like \u2014 the fee schedule, MUE tables (Practitioner, DME or Facility) and the DMEPOS fee schedule, any quarter. Each file is identified automatically, and they're saved on this computer, so you only load them once."),
-        React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap", alignItems: "center" } },
-            React.createElement("button", { onClick: () => ref.current && ref.current.click(), disabled: busy, style: {
-                    background: GRAD, color: "#fff", border: "none", borderRadius: 7,
-                    padding: "10px 18px", fontSize: 14, fontWeight: 800, cursor: busy ? "wait" : "pointer",
-                } }, busy ? "Reading…" : restoring ? "Loading your saved files…" : rows.length ? "Add more files" : "Choose CSV files"),
-            React.createElement("input", { ref: ref, type: "file", accept: ".csv,text/csv", multiple: true, style: { display: "none" }, onChange: (e) => { handle(e.target.files); e.target.value = ""; } }),
-            React.createElement("span", { style: { fontSize: 12.5, color: C.soft } }, "Kept on this computer only \u2014 nothing is uploaded.")),
-        !rows.length && !cms.sample && (React.createElement("div", { style: { marginTop: 14, background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 8, padding: "14px 16px" } },
-            React.createElement("div", { style: { fontSize: 13.5, fontWeight: 800, color: C.navy } }, "Want to see it working first? Try the built-in sample"),
-            React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 4, lineHeight: 1.6 } },
-                SAMPLE_CODES.length,
-                " common DME items are included, so you can search straight away \u2014 E0601, K0001, A7030 and more. Descriptions and the DME rules are real; fees and unit limits need the CMS files above."),
-            React.createElement("button", { onClick: () => setCms((c) => ({ ...c, sample: true })), style: {
-                    marginTop: 12, background: "#fff", color: C.teal, border: `1.5px solid ${C.teal}`,
-                    borderRadius: 7, padding: "9px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer",
-                } }, "Use the sample codes"))),
-        cms.sample && (React.createElement("div", { style: { marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
-                background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, padding: "10px 14px" } },
-            React.createElement("span", { style: { fontSize: 12.5, color: C.ink, flex: 1, minWidth: 220, lineHeight: 1.55 } },
-                React.createElement("b", null, "Sample codes are on."),
-                " ",
-                SAMPLE_CODES.length,
-                " DME items, descriptions only \u2014 load the CMS files for fees, unit limits and every other code."),
-            React.createElement("button", { onClick: () => setCms((c) => ({ ...c, sample: false })), style: {
-                    background: "transparent", border: "none", color: C.warn, fontSize: 12.5, fontWeight: 800,
-                    cursor: "pointer", textDecoration: "underline", padding: 0,
-                } }, "Turn the sample off"))),
-        notes.length > 0 && (React.createElement("div", { style: { marginTop: 12, padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 12.5, color: "#991B1B" } }, notes.map((n, i) => React.createElement("div", { key: i }, n)))),
-        saveNote && (React.createElement("div", { role: "status", style: { marginTop: 12, padding: "9px 12px", borderRadius: 8, fontSize: 12.5,
-                background: saveNote.ok ? "#EFFBF4" : C.warnBg, border: `1px solid ${saveNote.ok ? "#BFE9D2" : "#FCD9A8"}`, color: saveNote.ok ? "#166534" : C.warn } }, saveNote.text)),
-        rows.length > 0 && (React.createElement("div", { style: { marginTop: 14, border: `1px solid ${C.line}`, borderRadius: 8, overflow: "hidden" } }, rows.map((r, i) => (React.createElement("div", { key: r.kind + r.name + i, style: {
-                display: "flex", gap: 10, alignItems: "center", padding: "9px 12px",
-                borderBottom: i < rows.length - 1 ? `1px solid ${C.bg}` : "none", fontSize: 13,
-            } },
-            React.createElement("span", { style: { fontWeight: 800, color: C.navy, minWidth: 132 } }, r.group),
-            React.createElement("span", { style: { color: C.ink, minWidth: 128 } }, fmtEff(r.effective)),
-            React.createElement("span", { style: { color: C.soft, flex: 1, minWidth: 0 } },
-                r.codes.toLocaleString(),
-                " codes"),
-            React.createElement("button", { onClick: () => remove(r), "aria-label": "Remove", title: "Remove from this computer", style: { background: "transparent", border: "none", color: C.soft, cursor: "pointer", fontSize: 15, fontWeight: 900, padding: "0 4px" } }, "\u00D7"))))))));
-}
-/* ============================================================
-   MODIFIERS + POS FOR ONE SPECIFIC CODE
-   Combines this code's own CMS payment policy indicators with
-   the place-of-service policies, so the answer is about the code
-   in front of you rather than a general rule about the modifier.
-   ============================================================ */
-function posSplit(mod) {
-    const ok = [], no = [];
-    POS_FULL.forEach(([c]) => {
-        const v = modPosVerdict(mod, c);
-        if (v.status === "ok")
-            ok.push(c);
-        else if (v.status === "no")
-            no.push(c);
-    });
-    return { ok, no };
-}
-function codeModifierGuidance(base, curated) {
-    if (!base)
-        return [];
-    const rows = [];
-    const add = (mods, label, status, why) => rows.push({ mods, label, status, why });
-    const glob = base.glob || "";
-    const isProcedure = ["000", "010", "090"].includes(glob);
-    if (glob === "090") {
-        add("57", "Decision for surgery", "ok", "This code carries a 90-day global period, so an E/M on the day before or day of surgery bundles into the surgical fee unless it carries modifier 57. Missing it is one of the most expensive omissions on major surgery claims.");
-        add("24 / 58 / 78 / 79", "Working inside the global period", "ok", "For 90 days after surgery: 24 for an unrelated E/M, 58 for a planned or staged procedure, 78 for an unplanned return to the OR for a complication, 79 for something unrelated. 78 pays only the intra-operative portion and does not restart the clock; 58 and 79 both start a fresh global.");
-    }
-    else if (glob === "010") {
-        add("24 / 58 / 78 / 79", "Working inside the global period", "ok", "This code has a 10-day global period. Related care in those 10 days is bundled, so an unrelated or staged service needs the matching modifier to be payable.");
-        add("25", "Separately identifiable E/M", "ok", "A minor procedure includes the usual evaluation on the same day. An E/M is only separately payable when it stands on its own beyond that, and it needs modifier 25.");
-    }
-    else if (glob === "000") {
-        add("25", "Separately identifiable E/M", "ok", "This code has no post-operative period, but same-day evaluation is still included. Bill an E/M alongside it only when it is significant and separate, with modifier 25 on the E/M.");
-    }
-    else if (glob === "ZZZ") {
-        add("Add-on (ZZZ)", "Always billed with its parent", "caution", "This is an add-on code. Its global period belongs to the primary procedure, so it must always accompany its parent code on the claim. Billed alone it will deny.");
-    }
-    if (base.bilat === "1") {
-        add("50", "Bilateral procedure", "ok", "The CMS bilateral indicator for this code is 1, so the bilateral adjustment applies. Bill one line, one unit, with modifier 50 — Medicare pays 150 percent of the allowable. Two separate lines will deny as a duplicate.");
-    }
-    else if (base.bilat === "0") {
-        add("50", "Bilateral procedure", "no", "The CMS bilateral indicator for this code is 0, so the 150 percent adjustment never applies. Modifier 50 will deny in every place of service.");
-    }
-    else if (base.bilat === "2") {
-        add("50", "Bilateral procedure", "no", "The CMS bilateral indicator is 2, meaning the relative values already represent a bilateral procedure. Adding modifier 50 or billing two units asks to be paid twice for work already included.");
-    }
-    else if (base.bilat === "3") {
-        add("LT / RT", "Laterality, billed per side", "ok", "The CMS bilateral indicator is 3, so each side is paid in full. Bill separate LT and RT lines rather than modifier 50 — using 50 here reduces what you are owed.");
-    }
-    if (base.pctc === "1") {
-        add("26 / TC", "Professional and technical split", "ok", "The CMS PC/TC indicator is 1, so this code splits. Use 26 for the interpretation, TC for the equipment and staff, or no modifier at all when you performed both.");
-    }
-    else if (base.pctc === "0" || base.pctc === "9") {
-        add("26 / TC", "Professional and technical split", "no", "The CMS PC/TC indicator is " + base.pctc + ". This is a single physician service with no component split, so neither modifier is valid in any setting.");
-    }
-    else if (base.pctc === "2") {
-        add("26", "Professional component", "no", "The CMS PC/TC indicator is 2 — this code is already interpretation only. Adding modifier 26 duplicates what the code itself describes.");
-    }
-    else if (base.pctc === "3") {
-        add("TC", "Technical component", "no", "The CMS PC/TC indicator is 3 — this code is already technical only. Adding modifier TC duplicates what the code itself describes.");
-    }
-    if (base.asst === "2") {
-        add("80 / 82 / AS", "Assistant at surgery", "ok", "The CMS assistant indicator is 2, so an assistant is payable. Use AS for a PA, NP or clinical nurse specialist, 80 for a physician, 82 when a qualified resident was unavailable.");
-    }
-    else if (base.asst === "0") {
-        add("80 / 82 / AS", "Assistant at surgery", "caution", "The CMS assistant indicator is 0 — payable, but only where the operative note documents why an assistant was medically necessary. Expect the claim to be reviewed.");
-    }
-    else if (base.asst === "1") {
-        add("80 / 82 / AS", "Assistant at surgery", "no", "The CMS assistant indicator is 1: Medicare will not pay an assistant for this code. Billing 80, 82 or AS will deny outright.");
-    }
-    if (base.cosurg === "2") {
-        add("62", "Co-surgeons", "ok", "The CMS co-surgery indicator is 2, so two surgeons of different specialties may each bill with modifier 62 without supporting documentation.");
-    }
-    else if (base.cosurg === "1") {
-        add("62", "Co-surgeons", "caution", "The CMS co-surgery indicator is 1 — payable, but both surgeons must document why two were medically necessary.");
-    }
-    else if (base.cosurg === "0") {
-        add("62", "Co-surgeons", "no", "The CMS co-surgery indicator is 0. Modifier 62 will deny for this code.");
-    }
-    if (base.team === "1" || base.team === "2") {
-        add("66", "Surgical team", base.team === "2" ? "ok" : "caution", base.team === "2"
-            ? "The CMS team surgery indicator is 2, so a surgical team may be reported with modifier 66."
-            : "The CMS team surgery indicator is 1 — payable, but medical necessity for a team must be documented.");
-    }
-    else if (base.team === "0") {
-        add("66", "Surgical team", "no", "The CMS team surgery indicator is 0. Modifier 66 will deny for this code.");
-    }
-    if (base.mult === "2") {
-        add("51", "Multiple procedures", "caution", "The standard multiple-procedure reduction applies to this code. When billed with other surgical procedures the highest-valued pays in full and the rest at 50 percent. Many payers apply this automatically — check whether yours wants modifier 51 appended or not.");
-    }
-    else if (base.mult === "3") {
-        add("51", "Multiple procedures", "caution", "Special endoscopy rules apply rather than the standard reduction. Payment is based on the endoscopic base code, not a flat 50 percent cut.");
-    }
-    if (glob === "ZZZ") {
-        add("95 / 93 / FQ", "Telehealth modifiers", "caution", "An add-on code follows whatever its primary procedure allows. If the parent is a hands-on procedure, telehealth is impossible for both. Check the primary code first rather than this one.");
-    }
-    else if (isProcedure) {
-        add("95 / 93 / FQ / GT", "Telehealth modifiers", "no", "This code has a surgical global period, which means it describes a hands-on procedure. It cannot be furnished through a telehealth connection, so a telehealth modifier with POS 02 or 10 contradicts the code itself and will deny.");
-    }
-    else {
-        add("95 / 93 / FQ", "Telehealth modifiers", "caution", "Payable only while this code appears on the CMS telehealth services list, which is revised with each Physician Fee Schedule final rule. Confirm the current year's list, then pair with POS 10 when the patient was at home or POS 02 when they were anywhere else.");
-    }
-    if (["N", "X", "E", "I", "B", "D"].includes(base.status)) {
-        rows.unshift({
-            mods: "Status " + base.status,
-            label: "Check this before any modifier",
-            status: "no",
-            why: "The CMS status code for this code is " + base.status + ", so Medicare does not pay it separately. No modifier changes that — the question is whether to bill the patient, use a liability modifier such as GA or GY, or bill a different code entirely.",
-        });
-    }
-    /* Anything the written rule for this code calls out that the CMS
-       indicators alone wouldn't surface. */
-    const already = new Set();
-    rows.forEach((r) => String(r.mods).split("/").forEach((m) => already.add(m.trim().toUpperCase())));
-    (curated || []).forEach((rule) => (rule.modifiers || []).forEach((m) => {
-        const code = String(m.mod).split(/[\/,]/)[0].trim().split(/\s/)[0].replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-        if (!code || code.length > 2 || already.has(code))
-            return;
-        already.add(code);
-        rows.push({ mods: m.mod, label: "From this code's written rule", status: "ok", why: m.when });
-    }));
-    return rows;
-}
-function Indicator({ label, raw, dict, highlight }) {
-    const key = String(raw || "").trim();
-    const hit = dict[key];
-    if (!key)
-        return null;
-    return (React.createElement("div", { style: { padding: "11px 13px", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 8 } },
-        React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" } },
-            React.createElement("span", { style: { fontSize: 11, fontWeight: 800, color: C.soft, letterSpacing: 0.3, textTransform: "uppercase" } }, label),
-            React.createElement("span", { style: { fontSize: 12, fontWeight: 900, color: "#fff", background: highlight ? C.warn : C.navy, padding: "1px 7px", borderRadius: 4 } }, key),
-            React.createElement("span", { style: { fontSize: 13.5, fontWeight: 700, color: C.ink } }, hit ? hit[0] : "Not in the CMS indicator list")),
-        hit && React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 4, lineHeight: 1.55 } }, hit[1])));
-}
-function ModRow({ row }) {
-    const st = VERDICT_STYLE[row.status] || VERDICT_STYLE.unknown;
-    const firstMod = String(row.mods).split("/")[0].trim();
-    const split = firstMod && !/^(Add-on|Status|LT)/.test(firstMod) ? posSplit(firstMod) : { ok: [], no: [] };
-    const okShown = split.ok.slice(0, 6);
-    const teleBlocked = split.no.includes("02") && split.no.includes("10");
-    return (React.createElement("div", { style: { display: "flex", gap: 10, padding: "12px 0", borderBottom: `1px solid ${C.bg}` } },
-        React.createElement("span", { style: { width: 9, height: 9, borderRadius: 2, background: st.chip, marginTop: 6, flexShrink: 0 } }),
-        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
-            React.createElement("div", { style: { display: "flex", gap: 9, alignItems: "baseline", flexWrap: "wrap" } },
-                React.createElement("span", { style: { fontSize: 14.5, fontWeight: 900, color: C.navy } }, row.mods),
-                React.createElement("span", { style: { fontSize: 13, color: C.soft } }, row.label),
-                React.createElement("span", { style: { fontSize: 10.5, fontWeight: 900, color: st.fg, marginLeft: "auto" } }, st.label.toUpperCase())),
-            row.status !== "no" && okShown.length > 0 && (React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", margin: "8px 0 0" } },
-                okShown.map((c) => (React.createElement("span", { key: c, style: { fontSize: 11, background: "#EFFBF4", color: "#166534", padding: "2px 8px", borderRadius: 4, border: "1px solid #BFE9D2" } },
-                    "POS ",
-                    c))),
-                split.ok.length > okShown.length && (React.createElement("span", { style: { fontSize: 11, color: C.soft, alignSelf: "center" } },
-                    "+",
-                    split.ok.length - okShown.length,
-                    " more")),
-                teleBlocked && (React.createElement("span", { style: { fontSize: 11, background: "#FEF2F2", color: "#991B1B", padding: "2px 8px", borderRadius: 4, border: "1px solid #FECACA" } }, "never 02 / 10")))),
-            row.status === "no" && (React.createElement("div", { style: { margin: "8px 0 0" } },
-                React.createElement("span", { style: { fontSize: 11, background: "#FEF2F2", color: "#991B1B", padding: "2px 8px", borderRadius: 4, border: "1px solid #FECACA" } }, "no place of service"))),
-            React.createElement("div", { style: { fontSize: 12.5, color: C.soft, lineHeight: 1.6, marginTop: 7 } }, row.why))));
-}
-function ModifierPosPanel({ base, curated }) {
-    const [showAll, setShowAll] = useState(false);
-    const [pickMod, setPickMod] = useState("");
-    const rows = useMemo(() => codeModifierGuidance(base, curated), [base, curated]);
-    const allRows = useMemo(() => {
-        if (!showAll || !pickMod)
-            return null;
-        return POS_FULL.map(([c, n]) => ({ code: c, name: n, ...modPosVerdict(pickMod, c) }));
-    }, [showAll, pickMod]);
-    return (React.createElement("div", { style: { marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.line}` } },
-        React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: C.teal, marginBottom: 4 } }, "Modifiers and place of service for this code"),
-        React.createElement("div", { style: { fontSize: 12, color: C.soft, marginBottom: 8, lineHeight: 1.55 } },
-            "Worked out from this code's own CMS indicators, so it is specific to ",
-            base.code,
-            " rather than a general rule about each modifier."),
-        rows.length === 0 ? (React.createElement("div", { style: { fontSize: 13, color: C.soft, padding: "10px 0" } }, "This code's indicators don't put any modifier in play. Use the list below to check a specific one.")) : rows.map((r, i) => React.createElement(ModRow, { key: i, row: r })),
-        React.createElement("div", { style: { marginTop: 14 } }, !showAll ? (React.createElement("button", { onClick: () => setShowAll(true), style: {
-                background: "#fff", color: C.teal, border: `1.5px solid ${C.teal}`, borderRadius: 7,
-                padding: "8px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer",
-            } }, "Check a different modifier against every place of service")) : (React.createElement("div", null,
-            React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" } },
-                React.createElement("select", { value: pickMod, onChange: (e) => setPickMod(e.target.value), style: {
-                        flex: "1 1 240px", padding: "9px 12px", fontSize: 13.5, fontWeight: 700,
-                        border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, background: "#fff", outline: "none",
-                    } },
-                    React.createElement("option", { value: "" }, "Choose a modifier\u2026"),
-                    MOD_POS_LIST.map(([c, n]) => React.createElement("option", { key: c, value: c },
-                        c,
-                        " \u2014 ",
-                        n))),
-                React.createElement("button", { onClick: () => { setShowAll(false); setPickMod(""); }, style: {
-                        background: "transparent", border: "none", color: C.soft, fontSize: 13, fontWeight: 700, cursor: "pointer",
-                    } }, "Close")),
-            allRows && (React.createElement("div", { style: { marginTop: 10, border: `1px solid ${C.line}`, borderRadius: 8, maxHeight: 340, overflowY: "auto" } }, allRows.map((r) => {
-                const st = VERDICT_STYLE[r.status];
-                return (React.createElement("div", { key: r.code, style: { display: "flex", gap: 10, padding: "9px 13px", borderBottom: `1px solid ${C.bg}` } },
-                    React.createElement("span", { style: { width: 8, height: 8, borderRadius: 2, background: st.chip, marginTop: 5, flexShrink: 0 } }),
-                    React.createElement("span", { style: { fontWeight: 900, color: C.navy, fontSize: 13, minWidth: 54 } },
-                        "POS ",
-                        r.code),
-                    React.createElement("span", { style: { flex: 1, minWidth: 0 } },
-                        React.createElement("span", { style: { fontSize: 13, fontWeight: 700, color: C.ink } }, r.name),
-                        React.createElement("div", { style: { fontSize: 12, color: C.soft, lineHeight: 1.5, marginTop: 2 } }, r.why))));
-            }))))))));
-}
-/* ============================================================
-   DME ITEMS
-   ------------------------------------------------------------
-   DME, prosthetics, orthotics and supplies are paid under the
-   DMEPOS fee schedule, not the physician fee schedule, so most of
-   them are not in the PPRRVU file at all. They are found here from
-   the DME Supplier MUE table and, when loaded, the DMEPOS fee
-   schedule file (description, payment category, fees).
-   ============================================================ */
-const DMEPOS_CATG = {
-    IN: ["Inexpensive or routinely purchased", "Can be bought new (NU), bought used (UE) or rented (RR)."],
-    FS: ["Frequently serviced", "Paid as a continuing monthly rental (RR)."],
-    CR: ["Capped rental", "Rented monthly (RR) for up to 13 months — KH for month 1, KI for months 2–3, KJ for months 4–13 — then ownership passes to the patient."],
-    OX: ["Oxygen and oxygen equipment", "Paid as a monthly rental under the oxygen payment rules."],
-    OS: ["Ostomy, tracheostomy and urological supplies", "Purchased supplies."],
-    SD: ["Surgical dressings", "Purchased supplies."],
-    PO: ["Prosthetics and orthotics", "Purchased items; RT/LT show which side."],
-    SU: ["Supplies", "Purchased supplies, usually used with a piece of equipment."],
-    TE: ["TENS", "Transcutaneous electrical nerve stimulators."],
-    TS: ["Therapeutic shoes", "Diabetic shoes and inserts."],
-};
-const DME_JURIS = { D: "DME MAC", L: "Local Part B contractor", J: "Joint — DME MAC and local contractor" };
-function DmeCodeCard({ code, entry, rvuBase, dmeMue, dmeMueSet, dmeposRows, dmeposSet, curated, onBack, backCount, sample }) {
-    const rows = dmeposRows || [];
-    const main = rows.find((r) => !r.mod) || rows[0] || null;
-    const desc = (main && main.desc) || (entry && entry.desc) || "";
-    const catg = main ? main.catg : "";
-    const cat = DMEPOS_CATG[catg];
-    const states = useMemo(() => {
-        const seen = new Set();
-        rows.forEach((r) => Object.keys(r.fees || {}).forEach((k) => seen.add(k.replace(/ rural$/, ""))));
-        return [...seen].sort();
-    }, [rows]);
-    const [st, setSt] = useState(() => safeStore.get("astraDmeState") || "");
-    const pickState = (v) => { setSt(v); safeStore.set("astraDmeState", v); };
-    const money = (v) => {
-        const n = parseFloat(String(v == null ? "" : v).replace(/[$,]/g, ""));
-        return isNaN(n) ? "—" : "$" + n.toFixed(2);
-    };
-    const dmeRule = RULES.find((r) => r.code === "DME modifiers");
-    const rules = [dmeRule, ...curated.filter((r) => r !== dmeRule)].filter(Boolean);
-    const pill = (bg, bd, fg) => ({ fontSize: 11.5, fontWeight: 800, padding: "2px 9px", borderRadius: 5, background: bg, border: `1px solid ${bd}`, color: fg });
-    const th = { textAlign: "left", fontSize: 11, fontWeight: 800, color: C.soft, letterSpacing: 0.3, textTransform: "uppercase", padding: "7px 10px", borderBottom: `1px solid ${C.line}`, whiteSpace: "nowrap" };
-    const td = { fontSize: 13, color: C.ink, padding: "8px 10px", borderBottom: `1px solid ${C.bg}` };
-    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 18 } },
-        onBack && (React.createElement("button", { onClick: onBack, style: { background: "transparent", border: "none", color: C.teal, fontSize: 13, fontWeight: 800, cursor: "pointer", padding: 0, marginBottom: 10 } },
-            "\u2190 Back to ",
-            backCount,
-            " results")),
-        React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" } },
-            React.createElement("div", { style: { fontSize: 26, fontWeight: 900, color: C.navy, letterSpacing: -0.5 } }, code),
-            React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: desc ? C.ink : C.soft, flex: 1, minWidth: 200 } }, desc || "Description isn't in your loaded files")),
-        sample && (React.createElement("div", { style: { marginTop: 10, padding: "10px 12px", background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 12.5, color: C.ink, lineHeight: 1.6 } },
-            "This is one of the built-in sample items \u2014 the description and Coding Astra's own DME rules below are real, but its fee, jurisdiction and unit limit come from CMS's files. Load the ",
-            React.createElement("b", null, "DMEPOS fee schedule"),
-            " and the ",
-            React.createElement("b", null, "DME Supplier MUE"),
-            " table above to see those for your date of service.")),
-        React.createElement("div", { style: { marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" } },
-            sample && React.createElement("span", { style: pill(C.warnBg, "#FCD9A8", C.warn) }, "Sample code"),
-            React.createElement("span", { style: pill(C.paleTeal, "#BFE5E5", "#0B6E6E") }, "DME supplier item"),
-            React.createElement("span", { style: pill("#F1F5F9", "#CBD5E1", "#475569") }, "Billed to the DME MAC \u00B7 DMEPOS fee schedule")),
-        React.createElement("div", { style: { fontSize: 13, color: C.ink, marginTop: 12, lineHeight: 1.6 } },
-            "DME, prosthetics, orthotics and supplies are paid under the DMEPOS fee schedule, not the physician fee schedule, so there are no RVUs for this code.",
-            rvuBase && (React.createElement(React.Fragment, null,
-                " The physician fee schedule lists it as status ",
-                React.createElement("b", null, rvuBase.status),
-                STATUS_CODES[rvuBase.status] ? React.createElement(React.Fragment, null,
-                    " (",
-                    STATUS_CODES[rvuBase.status][0].toLowerCase(),
-                    ")") : null,
-                " ",
-                "\u2014 that is about paying physicians, not about a supplier billing the item."))),
-        React.createElement("div", { style: { marginTop: 16 } },
-            React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: C.teal, marginBottom: 6 } }, "Payment on the DMEPOS fee schedule"),
-            main ? (React.createElement("div", { style: { padding: "12px 13px", background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 8 } },
-                React.createElement("div", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.6 } },
-                    React.createElement("b", null,
-                        "Category ",
-                        catg || "—"),
-                    cat ? React.createElement(React.Fragment, null,
-                        " \u2014 ",
-                        cat[0],
-                        ". ",
-                        cat[1]) : " — see the DMEPOS fee schedule."),
-                main.juris && (React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 4 } },
-                    "Processed by: ",
-                    DME_JURIS[main.juris] || main.juris)),
-                React.createElement("div", { style: { marginTop: 10, overflowX: "auto", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 7 } },
-                    React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 360 } },
-                        React.createElement("thead", null,
-                            React.createElement("tr", null,
-                                React.createElement("th", { style: th }, "Modifier"),
-                                React.createElement("th", { style: th }, "Floor"),
-                                React.createElement("th", { style: th }, "Ceiling"),
-                                st && React.createElement("th", { style: th },
-                                    st,
-                                    " fee"),
-                                st && rows.some((r) => r.fees && r.fees[st + " rural"]) && React.createElement("th", { style: th },
-                                    st,
-                                    " rural"))),
-                        React.createElement("tbody", null, rows.map((r, i) => (React.createElement("tr", { key: i },
-                            React.createElement("td", { style: { ...td, fontWeight: 800 } }, [r.mod, r.mod2].filter(Boolean).join(" + ") || "—"),
-                            React.createElement("td", { style: td }, money(r.floor)),
-                            React.createElement("td", { style: td }, money(r.ceiling)),
-                            st && React.createElement("td", { style: td }, money(r.fees && r.fees[st])),
-                            st && rows.some((x) => x.fees && x.fees[st + " rural"]) && React.createElement("td", { style: td }, money(r.fees && r.fees[st + " rural"])))))))),
-                states.length > 0 && (React.createElement("div", { style: { marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
-                    React.createElement("label", { style: { fontSize: 12, fontWeight: 800, color: C.ink } }, "Show the fee for"),
-                    React.createElement("select", { "aria-label": "State", value: st, onChange: (e) => pickState(e.target.value), style: { padding: "6px 9px", fontSize: 13, border: `1.5px solid ${C.line}`, borderRadius: 6, background: "#fff", color: C.ink } },
-                        React.createElement("option", { value: "" }, "Choose a state\u2026"),
-                        states.map((s) => React.createElement("option", { key: s, value: s }, s))))),
-                React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 8 } },
-                    "From your DMEPOS file, ",
-                    fmtEff(dmeposSet && dmeposSet.effective),
-                    ". NU = new purchase, UE = used purchase, RR = rental."))) : (React.createElement("div", { style: { padding: "11px 13px", background: C.bg, border: `1px dashed ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.6 } },
-                "Load the ",
-                React.createElement("b", null, "DMEPOS fee schedule"),
-                " CSV from CMS to see this item's description, payment category and fees.",
-                " ",
-                React.createElement("a", { href: CMS_LINKS.dmepos, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 700 } }, "Get it \u2197")))),
-        dmeMue ? (React.createElement("div", { style: { marginTop: 14 } },
-            React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: C.teal, marginBottom: 6 } }, "Units per day (DME supplier MUE)"),
-            React.createElement("div", { style: { padding: "12px 13px", background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 8 } },
-                React.createElement("div", { style: { fontSize: 14, color: C.ink } },
-                    "Maximum ",
-                    React.createElement("b", { style: { fontSize: 17 } }, dmeMue.value),
-                    " unit",
-                    dmeMue.value === "1" ? "" : "s",
-                    " per patient per date of service."),
-                MAI_MEANING[dmeMue.mai] && (React.createElement("div", { style: { fontSize: 13, color: C.ink, marginTop: 6 } },
-                    React.createElement("b", null, MAI_MEANING[dmeMue.mai][0]),
-                    " \u2014 ",
-                    MAI_MEANING[dmeMue.mai][1])),
-                dmeMue.rationale && React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 5 } },
-                    "CMS rationale: ",
-                    dmeMue.rationale),
-                React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 5 } },
-                    "DME Supplier MUE table, ",
-                    fmtEff(dmeMueSet && dmeMueSet.effective))))) : dmeMueSet ? (React.createElement("div", { style: { marginTop: 14, fontSize: 12.5, color: C.soft } }, "No DME supplier MUE is published for this code in the loaded table.")) : (React.createElement("div", { style: { marginTop: 14, fontSize: 12.5, color: C.soft } }, "Load the DME Supplier MUE table above to see the units-per-day cap.")),
-        rules.length > 0 && (React.createElement("div", { style: { marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.line}` } },
-            React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: C.stamp, marginBottom: 8 } }, "Coding Astra's DME rules"),
-            React.createElement("div", { style: { display: "grid", gap: 12 } }, rules.map((r, i) => React.createElement(RuleCard, { key: i, r: r }))))),
-        React.createElement(AiLookupBlock, { topic: `${code}${desc ? " (" + desc + ")" : ""} — Medicare DMEPOS billing: HCPCS description, payment category, required modifiers (RR/NU/UE, KX, KH/KI/KJ), the DME MAC LCD and policy article, documentation requirements, and the latest CMS reference`, label: "Check this item's DME coverage rules on cms.gov", hint: "Your files give payment; this adds coverage, the LCD and documentation" })));
-}
-function CodeLookup({ cms, setCms, restoring }) {
-    const [q, setQ] = useState("");
-    const [selected, setSelected] = useState("");
-    const dosDate = cms.dos ? new Date(cms.dos + "T00:00:00") : null;
-    const dmeposList = cms.dmepos || [];
-    const sets = useMemo(() => ({
-        rvu: pickDataset(cms.rvu, dosDate, null),
-        mue: {
-            Practitioner: pickDataset(cms.mue, dosDate, "Practitioner"),
-            DME: pickDataset(cms.mue, dosDate, "DME"),
-            Facility: pickDataset(cms.mue, dosDate, "Facility"),
-        },
-        dmepos: pickDataset(dmeposList, dosDate, null),
-    }), [cms.rvu, cms.mue, cms.dmepos, cms.dos]);
-    const rvuSet = sets.rvu;
-    const mueSet = sets.mue[cms.claimType] || null;
-    const anyData = cms.rvu.length > 0 || cms.mue.length > 0 || dmeposList.length > 0 || !!cms.sample;
-    // Only the built-in sample is loaded, so a miss usually means exactly that.
-    const sampleOnly = !!cms.sample && !cms.rvu.length && !cms.mue.length && !dmeposList.length;
-    /* Every code in force on the date, from every file loaded — the
-       fee schedule, the DMEPOS fee schedule and all three MUE tables —
-       so DME items that aren't on the physician fee schedule are found. */
-    const catalog = useMemo(() => {
-        const m = new Map();
-        const add = (code, desc, flag) => {
-            let e = m.get(code);
-            if (!e) {
-                e = { code, desc: "", pfs: false, dme: false };
-                m.set(code, e);
-            }
-            if (desc && !e.desc)
-                e.desc = desc;
-            if (flag)
-                e[flag] = true;
-        };
-        if (sets.rvu)
-            for (const [c, rows] of sets.rvu.map)
-                add(c, (rows.find((r) => !r.mod) || rows[0]).desc, "pfs");
-        if (sets.dmepos)
-            for (const [c, rows] of sets.dmepos.map)
-                add(c, (rows.find((r) => r.desc) || rows[0]).desc, "dme");
-        if (sets.mue.DME)
-            for (const c of sets.mue.DME.map.keys())
-                add(c, "", "dme");
-        ["Practitioner", "Facility"].forEach((t) => { if (sets.mue[t])
-            for (const c of sets.mue[t].map.keys())
-                add(c, "", null); });
-        if (cms.sample) {
-            SAMPLE_CODES.forEach(({ code, desc }) => {
-                const had = m.has(code);
-                add(code, desc, "dme");
-                if (!had)
-                    m.get(code).sample = true; // only a sample until the real files arrive
-            });
-        }
-        return m;
-    }, [sets, cms.sample]);
-    /* Search accepts the same shapes as the CMS tool:
-         44970                 one code
-         44950-44979           a range
-         44970, 99490, E0601   a list
-         4497                  a partial code
-         appendectomy          words from the description          */
-    const raw = normDash(q).trim();
-    const results = useMemo(() => {
-        if (!raw || !catalog.size)
-            return [];
-        const out = [];
-        const seen = new Set();
-        const push = (c) => {
-            if (seen.has(c))
-                return;
-            const e = catalog.get(c);
-            if (!e)
-                return;
-            seen.add(c);
-            out.push(e);
-        };
-        const term = raw.toUpperCase();
-        if (catalog.has(term))
-            push(term);
-        if (/[,;]/.test(term) || /\s/.test(term.trim())) {
-            term.split(/[,;\s]+/).filter(Boolean).forEach((t) => { if (catalog.has(t))
-                push(t); });
-        }
-        const range = term.match(/^([A-Z]?)(\d+)([A-Z]?)\s*-\s*([A-Z]?)(\d+)([A-Z]?)$/);
-        if (range && range[1] === range[4] && range[3] === range[6]) {
-            const prefix = range[1], suffix = range[3];
-            const from = parseInt(range[2], 10), to = parseInt(range[5], 10);
-            const width = range[2].length;
-            if (to >= from && to - from <= 2000) {
-                for (let n = from; n <= to; n++)
-                    push(prefix + String(n).padStart(width, "0") + suffix);
-            }
-        }
-        if (out.length < 200) {
-            const starts = [];
-            for (const c of catalog.keys())
-                if (c.startsWith(term) && !seen.has(c))
-                    starts.push(c);
-            starts.sort().slice(0, 200 - out.length).forEach(push);
-        }
-        if (out.length === 0 && term.length >= 3) {
-            const words = [];
-            for (const e of catalog.values())
-                if (e.desc && e.desc.toUpperCase().includes(term))
-                    words.push(e.code);
-            words.sort().slice(0, 200).forEach(push);
-        }
-        return out;
-    }, [catalog, raw]);
-    useSearchLog("Code lookup", raw, results.length, true);
-    // one hit, or the user picked one from the list
-    const code = selected || (results.length === 1 ? results[0].code : "");
-    const entry = code ? catalog.get(code) : null;
-    const rvuHits = rvuSet && code ? rvuSet.map.get(code) : null;
-    const base = rvuHits ? (rvuHits.find((r) => !r.mod) || rvuHits[0]) : null;
-    const mueHit = mueSet && code ? mueSet.map.get(code) : null;
-    const curated = code ? RULES.filter((r) => ruleCovers(r, code)) : [];
-    const isDme = !!(entry && entry.dme);
-    const view = !entry ? null
-        : base && !(isDme && cms.claimType === "DME") ? "pfs"
-            : isDme ? "dme"
-                : base ? "pfs" : "other";
-    const back = selected && results.length > 1 ? () => setSelected("") : null;
-    const otherMue = code ? ["Practitioner", "Facility", "DME"].map((t) => [t, sets.mue[t] && sets.mue[t].map.get(code)]).filter(([, h]) => h) : [];
-    return (React.createElement("div", { style: { display: "grid", gap: 14 } },
-        React.createElement(FreshnessBanner, { cms: cms }),
-        React.createElement(DatasetLoader, { cms: cms, setCms: setCms, restoring: restoring }),
-        anyData && (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.teal}`, borderRadius: 10, padding: 16 } },
-            React.createElement("div", { style: { fontSize: 14, fontWeight: 900, color: C.navy } }, "Which rules should apply?"),
-            React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 4, lineHeight: 1.55 } }, "A claim is judged by the rules in force on its date of service. Leave the date blank to use the newest files you have loaded."),
-            React.createElement("div", { style: { display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap", alignItems: "flex-end" } },
-                React.createElement("div", null,
-                    React.createElement("label", { style: { display: "block", fontSize: 11.5, fontWeight: 800, color: C.ink, marginBottom: 4 } }, "Date of service"),
-                    React.createElement("input", { type: "date", value: cms.dos, onChange: (e) => setCms((c) => ({ ...c, dos: e.target.value })), style: { padding: "9px 11px", fontSize: 13.5, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } })),
-                React.createElement("div", null,
-                    React.createElement("label", { style: { display: "block", fontSize: 11.5, fontWeight: 800, color: C.ink, marginBottom: 4 } }, "Claim type"),
-                    React.createElement("select", { "aria-label": "Claim type", value: cms.claimType, onChange: (e) => setCms((c) => ({ ...c, claimType: e.target.value })), style: { padding: "9px 11px", fontSize: 13.5, fontWeight: 700, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, background: "#fff", outline: "none" } },
-                        React.createElement("option", { value: "Practitioner" }, "Professional (Practitioner)"),
-                        React.createElement("option", { value: "DME" }, "DME supplier"),
-                        React.createElement("option", { value: "Facility" }, "Facility outpatient"))),
-                cms.dos && (React.createElement("button", { onClick: () => setCms((c) => ({ ...c, dos: "" })), style: {
-                        background: "transparent", border: "none", color: C.teal, fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "9px 0",
-                    } }, "Clear date"))),
-            React.createElement("div", { style: { marginTop: 12, fontSize: 12.5, color: C.ink, lineHeight: 1.7 } },
-                React.createElement("div", null,
-                    React.createElement("b", null, "Fee schedule in use:"),
-                    " ",
-                    rvuSet ? fmtEff(rvuSet.effective) : React.createElement("span", { style: { color: cms.claimType === "DME" ? C.soft : C.warn } },
-                        "none loaded",
-                        cms.claimType === "DME" ? " (not needed for DME items)" : ""),
-                    rvuSet && rvuSet.tooOld && React.createElement("span", { style: { color: C.warn } }, " \u2014 older than anything loaded, showing the earliest held")),
-                React.createElement("div", null,
-                    React.createElement("b", null,
-                        cms.claimType,
-                        " MUE in use:"),
-                    " ",
-                    mueSet ? fmtEff(mueSet.effective) : React.createElement("span", { style: { color: C.warn } },
-                        "no ",
-                        cms.claimType,
-                        " table loaded"),
-                    mueSet && mueSet.tooOld && React.createElement("span", { style: { color: C.warn } }, " \u2014 older than anything loaded, showing the earliest held")),
-                (dmeposList.length > 0 || cms.claimType === "DME") && (React.createElement("div", null,
-                    React.createElement("b", null, "DMEPOS fee schedule in use:"),
-                    " ",
-                    sets.dmepos ? fmtEff(sets.dmepos.effective) : React.createElement("span", { style: { color: C.soft } }, "none loaded \u2014 optional, adds DME descriptions and fees"),
-                    sets.dmepos && sets.dmepos.tooOld && React.createElement("span", { style: { color: C.warn } }, " \u2014 older than anything loaded, showing the earliest held")))))),
-        anyData && (React.createElement(React.Fragment, null,
-            React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 18 } },
-                React.createElement("div", { style: { fontSize: 15, fontWeight: 800, color: C.navy } }, "Look up a code"),
-                React.createElement("input", { "aria-label": "Look up a code", value: q, onChange: (e) => { setQ(e.target.value); setSelected(""); }, placeholder: "Code, range or words \u2014 44970 \u00B7 E0601 \u00B7 44950-44979 \u00B7 appendectomy", style: { width: "100%", boxSizing: "border-box", marginTop: 10, padding: "11px 13px", fontSize: 15, fontWeight: 700, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } }),
-                React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 8, lineHeight: 1.6 } },
-                    "Search one code, a range like ",
-                    React.createElement("b", null, "44950-44979"),
-                    ", several separated by commas, the start of a code, or words from its description. DME items (E, K, L and more) are found from the DME MUE and DMEPOS files.",
-                    sampleOnly && React.createElement(React.Fragment, null,
-                        React.createElement("br", null),
-                        React.createElement("b", { style: { color: C.warn } }, "Sample only:"),
-                        " until you load a CMS file, the only codes here are the ",
-                        SAMPLE_CODES.length,
-                        " sample DME items \u2014 try ",
-                        React.createElement("b", null, "E0601"),
-                        ", ",
-                        React.createElement("b", null, "K0001"),
-                        " or ",
-                        React.createElement("b", null, "mask"),
-                        "."))),
-            raw && results.length === 0 && (React.createElement("div", { style: { background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 10, padding: 22 } },
-                React.createElement("div", { style: { fontSize: 14.5, fontWeight: 800, color: C.navy } },
-                    "Nothing found for \"",
-                    raw,
-                    "\""),
-                sampleOnly ? (React.createElement(React.Fragment, null,
-                    React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 8, lineHeight: 1.65 } },
-                        "No CMS file is loaded yet, so the only codes to search are the ",
-                        React.createElement("b", null,
-                            SAMPLE_CODES.length,
-                            " sample DME items"),
-                        " \u2014 and \"",
-                        raw,
-                        "\" isn't one of them. These are:"),
-                    React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 } }, SAMPLE_CODES.map((x) => (React.createElement("button", { key: x.code, onClick: () => { setQ(x.code); setSelected(""); }, style: {
-                            background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 999, padding: "6px 12px",
-                            fontSize: 12.5, fontWeight: 800, color: C.teal, cursor: "pointer",
-                        } }, x.code)))),
-                    React.createElement("div", { style: { fontSize: 13, color: C.ink, marginTop: 12, lineHeight: 1.65 } },
-                        "To search ",
-                        React.createElement("b", null, "every"),
-                        " code \u2014 CPT, dental D codes, everything else \u2014 load the CMS files at the top of this tab. It takes a minute, once per computer."))) : (React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 8, lineHeight: 1.65 } },
-                    "It isn't in any file you've loaded. For DME, prosthetics, orthotics and supplies (E, K, L and most A codes), load the ",
-                    React.createElement("b", null, "DME Supplier MUE"),
-                    " table \u2014 and the ",
-                    React.createElement("b", null, "DMEPOS fee schedule"),
-                    " for descriptions and fees \u2014 because those items aren't on the physician fee schedule. Also check the year of your files; deleted codes drop out.")))),
-            results.length > 1 && !selected && (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" } },
-                React.createElement("div", { style: { padding: "12px 16px", borderBottom: `1px solid ${C.line}`, fontSize: 13.5, fontWeight: 800, color: C.navy } },
-                    results.length >= 200 ? "First 200 matches" : `${results.length} matches`,
-                    " \u2014 pick one to see its rules"),
-                React.createElement("div", { style: { maxHeight: 420, overflowY: "auto" } }, results.map((r) => {
-                    const rec = rvuSet && rvuSet.map.get(r.code);
-                    const b = rec ? (rec.find((x) => !x.mod) || rec[0]) : null;
-                    return (React.createElement("button", { key: r.code, onClick: () => setSelected(r.code), style: {
-                            display: "flex", gap: 12, width: "100%", textAlign: "left", padding: "11px 16px", alignItems: "baseline",
-                            border: "none", borderBottom: `1px solid ${C.bg}`, background: "#fff", cursor: "pointer",
-                        } },
-                        React.createElement("span", { style: { fontWeight: 900, color: C.navy, fontSize: 14, minWidth: 62 } }, r.code),
-                        React.createElement("span", { style: { fontSize: 13.5, color: r.desc ? C.ink : C.soft, flex: 1 } }, r.desc || "DME item — load the DMEPOS file for its description"),
-                        r.dme && React.createElement("span", { style: { fontSize: 10.5, fontWeight: 900, color: "#0B6E6E", background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 4, padding: "1px 6px" } }, "DME"),
-                        React.createElement("span", { style: { fontSize: 11.5, color: C.soft, whiteSpace: "nowrap" } }, b && b.glob !== "XXX" && b.glob ? b.glob + " global" : "")));
-                })))),
-            view === "dme" && (React.createElement(DmeCodeCard, { code: code, entry: entry, rvuBase: base, dmeMue: sets.mue.DME ? sets.mue.DME.map.get(code) : null, dmeMueSet: sets.mue.DME, dmeposRows: sets.dmepos ? sets.dmepos.map.get(code) : null, dmeposSet: sets.dmepos, curated: curated, onBack: back, backCount: results.length, sample: !!(entry && entry.sample) })),
-            view === "other" && (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 18 } },
-                back && (React.createElement("button", { onClick: back, style: { background: "transparent", border: "none", color: C.teal, fontSize: 13, fontWeight: 800, cursor: "pointer", padding: 0, marginBottom: 10 } },
-                    "\u2190 Back to ",
-                    results.length,
-                    " results")),
-                React.createElement("div", { style: { fontSize: 26, fontWeight: 900, color: C.navy, letterSpacing: -0.5 } }, code),
-                React.createElement("div", { style: { fontSize: 13, color: C.soft, marginTop: 4 } }, "Found in an MUE table, but not in the fee schedule file you loaded."),
-                otherMue.map(([t, h]) => (React.createElement("div", { key: t, style: { marginTop: 10, padding: "10px 12px", background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 8, fontSize: 13.5, color: C.ink } },
-                    React.createElement("b", null,
-                        t,
-                        " MUE:"),
-                    " maximum ",
-                    React.createElement("b", null, h.value),
-                    " per patient per date of service",
-                    MAI_MEANING[h.mai] ? " — " + MAI_MEANING[h.mai][0] : "",
-                    "."))),
-                React.createElement(AiLookupBlock, { topic: `${code} — current Medicare rules: what the code is, how it is paid, which POS codes and modifiers apply, and the latest CMS reference`, label: `Look up ${code} on cms.gov`, hint: "Your files only hold its unit limit" }))),
-            view === "pfs" && base && (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 18 } },
-                back && (React.createElement("button", { onClick: back, style: {
-                        background: "transparent", border: "none", color: C.teal, fontSize: 13,
-                        fontWeight: 800, cursor: "pointer", padding: 0, marginBottom: 10,
-                    } },
-                    "\u2190 Back to ",
-                    results.length,
-                    " results")),
-                React.createElement("div", { style: { display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" } },
-                    React.createElement("div", { style: { fontSize: 26, fontWeight: 900, color: C.navy, letterSpacing: -0.5 } }, base.code),
-                    React.createElement("div", { style: { fontSize: 15, fontWeight: 700, color: C.ink, flex: 1, minWidth: 200 } }, base.desc)),
-                React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 4 } }, "From your loaded CMS file \u00B7 CPT descriptions \u00A9 American Medical Association"),
-                isDme && cms.claimType !== "DME" && (React.createElement("div", { style: { marginTop: 12, padding: "10px 12px", background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } },
-                    "This is also a ",
-                    React.createElement("b", null, "DME supplier item"),
-                    ", billed to the DME MAC on the DMEPOS fee schedule.",
-                    " ",
-                    React.createElement("button", { onClick: () => setCms((c) => ({ ...c, claimType: "DME" })), style: { background: "transparent", border: "none", color: C.teal, fontWeight: 800, cursor: "pointer", padding: 0, fontSize: 13 } }, "Show its DME rules \u2192"))),
-                React.createElement("div", { style: { display: "grid", gap: 8, marginTop: 14 } },
-                    React.createElement(Indicator, { label: "Status", raw: base.status, dict: STATUS_CODES, highlight: ["N", "X", "E", "I", "B", "D"].includes(base.status) }),
-                    React.createElement(Indicator, { label: "Global period", raw: base.glob, dict: GLOBAL_DAYS }),
-                    React.createElement(Indicator, { label: "PC / TC split", raw: base.pctc, dict: PCTC_IND }),
-                    React.createElement(Indicator, { label: "Bilateral", raw: base.bilat, dict: BILAT_IND }),
-                    React.createElement(Indicator, { label: "Assistant at surgery", raw: base.asst, dict: ASST_IND }),
-                    React.createElement(Indicator, { label: "Co-surgeons", raw: base.cosurg, dict: COSURG_IND }),
-                    React.createElement(Indicator, { label: "Team surgery", raw: base.team, dict: TEAM_IND }),
-                    React.createElement(Indicator, { label: "Multiple procedure", raw: base.mult, dict: MULT_IND })),
-                React.createElement(ModifierPosPanel, { base: base, curated: curated }),
-                mueHit ? (React.createElement("div", { style: { marginTop: 14 } },
-                    React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: C.teal, marginBottom: 6 } }, "Units per day (MUE)"),
-                    React.createElement("div", { style: { padding: "12px 13px", background: C.paleTeal, border: `1px solid #BFE5E5`, borderRadius: 8 } },
-                        React.createElement("div", { style: { fontSize: 14, color: C.ink } },
-                            "Maximum ",
-                            React.createElement("b", { style: { fontSize: 17 } }, mueHit.value),
-                            " unit",
-                            mueHit.value === "1" ? "" : "s",
-                            " per patient per date of service."),
-                        MAI_MEANING[mueHit.mai] && (React.createElement("div", { style: { fontSize: 13, color: C.ink, marginTop: 6 } },
-                            React.createElement("b", null, MAI_MEANING[mueHit.mai][0]),
-                            " \u2014 ",
-                            MAI_MEANING[mueHit.mai][1])),
-                        mueHit.rationale && React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 5 } },
-                            "CMS rationale: ",
-                            mueHit.rationale)))) : mueSet ? (React.createElement("div", { style: { marginTop: 14, fontSize: 12.5, color: C.soft } }, "No MUE published for this code in the loaded table.")) : (React.createElement("div", { style: { marginTop: 14, fontSize: 12.5, color: C.soft } }, "Load a matching MUE table above to see the units-per-day cap.")),
-                rvuHits.length > 1 && (React.createElement("div", { style: { marginTop: 14 } },
-                    React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: C.teal, marginBottom: 6 } }, "Modifier variants priced separately"),
-                    rvuHits.filter((r) => r.mod).map((r) => (React.createElement("div", { key: r.mod, style: { fontSize: 13.5, color: C.ink, marginBottom: 3 } },
-                        React.createElement("b", null,
-                            base.code,
-                            "-",
-                            r.mod),
-                        " \u2014 ",
-                        r.desc,
-                        " ",
-                        React.createElement("span", { style: { color: C.soft } },
-                            "(status ",
-                            r.status,
-                            ")")))),
-                    React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 5 } }, "CMS prices these modifier combinations separately, which confirms the split is permitted for this code."))),
-                curated.length > 0 && (React.createElement("div", { style: { marginTop: 16, paddingTop: 14, borderTop: `1px solid ${C.line}` } },
-                    React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: C.stamp, marginBottom: 8 } }, "Coding Astra also has a written rule for this code"),
-                    React.createElement("div", { style: { display: "grid", gap: 12 } }, curated.map((r, i) => React.createElement(RuleCard, { key: i, r: r }))))),
-                React.createElement(AiLookupBlock, { topic: `${base.code} (${base.desc}) — current Medicare rules: which POS codes apply, required modifiers, covered ICD-10 diagnoses, frequency limits, and the latest transmittal/CR or MLN Matters reference`, label: "Check coverage and diagnosis rules on cms.gov", hint: "The file gives the payment rules; this adds coverage and Dx" })))))));
-}
-/* ============================================================
-   ACCOUNTS (invite-only)
-   ------------------------------------------------------------
-   A person's first visit needs their name and the activation code
-   Purview gave them; they then create their own password. After
-   that they sign in with email + password. Every check runs in the
-   Apps Script behind the Google Sheet — never in this page, because
-   page code is readable by anyone who opens the site.
-   ============================================================ */
-/* Google Sheets endpoint — your Apps Script Web app URL (ends in /exec).
-   Leave it empty to try everything in a throwaway demo mode. */
 const SHEET_API = "https://script.google.com/macros/s/AKfycbwVFivGGb7Mjl9Mer8nbGqWP4ZX1y5atShNh1goqoPaiZvGgXCMWwOXQzcJb_UnvtDT/exec";
 /* Sign-in gate.
    false -> app opens straight away. Use this inside Claude, where
@@ -4818,53 +3341,37 @@ function demoSession(email) {
     return token;
 }
 function demoBackend(action, p) {
-    const email = String(p.email || "").trim().toLowerCase();
+    /* The sign-in and change-password screens send "login"; sign-up sends
+       "email". Demo mode has to accept either. */
+    const email = String(p.email || p.login || "").trim().toLowerCase();
     const findUser = (em) => DEMO.users.find((u) => u.email === em);
-    const byLogin = (login) => {
-        const id = String(login || "").trim().toLowerCase();
-        return id.includes("@") ? findUser(id) : DEMO.users.find((u) => u.empId && u.empId.toLowerCase() === id);
-    };
     if (action === "signup") {
-        throw demoFail("New accounts are created with an activation code. Choose \"First time here\" on the sign-in screen.", "ACTIVATION_ONLY");
-    }
-    if (action === "activateCheck" || action === "activate") {
-        const name = String(p.name || "").trim().replace(/\s+/g, " ");
-        const code = normCodeText(p.code);
-        if (!nameWords(name).length || code.length < 4) {
-            throw demoFail("That name and activation code don't match our list. Check both and try again.", "NO_MATCH");
-        }
-        if (DEMO.used[code]) {
-            throw demoFail("This activation code has already been used. Sign in with your email and password, or use Forgot your password.", "USED");
-        }
-        if (action === "activateCheck")
-            return { ok: true, name, email: "", org: "", empId: "" };
-        if (!email)
-            throw demoFail("Enter your work email.");
+        const first = String(p.firstName || "").trim(), last = String(p.lastName || "").trim();
+        if (!first || !last)
+            throw demoFail("Enter your first and last name.");
         if (!EMAIL_RE.test(email))
             throw demoFail("Enter a valid email address.");
         if (findUser(email))
             throw demoFail(`An account already exists for ${email}. Sign in instead, or use Forgot your password.`, "EXISTS");
-        const problem = passwordProblem(String(p.password || ""), { code: p.code, name });
+        const problem = passwordProblem(String(p.password || ""), { name: first + " " + last });
         if (problem)
             throw demoFail(problem);
-        const parts = name.split(" ");
         const now = new Date().toISOString();
         const account = {
-            firstSeenAt: now, registeredAt: now, firstName: parts[0], lastName: parts.slice(1).join(" "),
-            org: "", email, phone: "", address1: "", address2: "", city: "", state: "", zip: "",
-            country: "US", specialties: "ALL", empId: "",
-            greetAs: String(p.greetAs || "").replace(/[^A-Za-z\u00C0-\u024F' -]/g, "").trim().slice(0, 30) || parts[0],
+            firstSeenAt: now, registeredAt: now, firstName: first, lastName: last,
+            org: String(p.org || "").trim(), email, phone: "", address1: "", address2: "",
+            city: String(p.city || "").trim(), state: String(p.state || "").trim().toUpperCase(),
+            zip: String(p.zip || "").trim(), country: "US", specialties: "ALL",
+            greetAs: first,
         };
         DEMO.users.push(account);
         DEMO.pw[email] = String(p.password);
-        DEMO.used[code] = email;
-        DEMO.codes.push({ name, email: "", org: "", status: "activated", activatedOn: now, activatedEmail: email, hasCode: true });
         return { ok: true, account, token: demoSession(email) };
     }
     if (action === "signin") {
-        const u = byLogin(p.login || p.email);
+        const u = findUser(email);
         if (!u || DEMO.pw[u.email] !== String(p.password || "")) {
-            throw demoFail("That Employee ID or email and password don't match. Check both and try again.", "BAD_LOGIN");
+            throw demoFail("That email and password don't match. Check both and try again.", "BAD_LOGIN");
         }
         return { ok: true, account: u, token: demoSession(u.email) };
     }
@@ -4882,7 +3389,7 @@ function demoBackend(action, p) {
     if (action === "resetPassword")
         return { ok: true };
     if (action === "changePassword") {
-        const u = byLogin(p.login || p.email);
+        const u = findUser(email);
         if (!u || DEMO.pw[u.email] !== String(p.currentPassword || "")) {
             throw demoFail("Your current password wasn't accepted.");
         }
@@ -4904,13 +3411,7 @@ function demoBackend(action, p) {
         if (action === "adminLogin")
             return { ok: true };
         if (action === "adminUsers") {
-            return {
-                users: DEMO.users.slice(), sheetUrl: "",
-                activation: {
-                    configured: true, rows: DEMO.codes.slice(), total: DEMO.codes.length,
-                    activated: DEMO.codes.length, disabled: 0,
-                },
-            };
+            return { users: DEMO.users.slice(), sheetUrl: "" };
         }
         const t = String(p.targetEmail || "").trim().toLowerCase();
         const u = findUser(t);
@@ -5125,11 +3626,6 @@ function passwordProblem(pw, ctx) {
     const low = pw.toLowerCase();
     if (COMMON_PASSWORDS.includes(low) || /^(.)\1+$/.test(pw))
         return "That password is too easy to guess. Choose another.";
-    if (ctx && ctx.code && normCodeText(pw) === normCodeText(ctx.code))
-        return "Don't reuse your activation code as your password.";
-    if (ctx && ctx.empId && String(ctx.empId).length >= 4 &&
-        low.replace(/[^a-z0-9]/g, "").includes(normCodeText(ctx.empId).toLowerCase()))
-        return "Don't use your Employee ID in your password.";
     if (ctx && ctx.name) {
         const letters = low.replace(/[^a-z]/g, "");
         if (nameWords(ctx.name).some((w) => w.length >= 3 && letters === w))
@@ -5193,13 +3689,13 @@ function friendlyAuthError(err) {
         return "The sign-in service answered in a way the app didn't expect. Check the Apps Script deployment has \"Who has access\" set to Anyone.";
     }
     if (code === "NO_MATCH") {
-        return "That name and activation code don't match our list. Copy your name exactly as in column A of your activation sheet — or your Employee ID from column B — and check the code from the same row. No code in your row? Use the first 3 letters of your first name + the last 3 digits of your Employee ID.";
+        return "We couldn't match those details. Check them and try again.";
     }
     if (code === "BAD_LOGIN") {
-        return "That Employee ID and password don't match. Check both and try again. First time here? Use the \"First time here\" tab with your activation code.";
+        return "That email and password don't match. Check both and try again, or use Forgot your password.";
     }
     if (code === "USED") {
-        return "This activation code has already been used. Sign in with your Employee ID and password, or use Forgot your password.";
+        return "An account already exists. Sign in with your email and password, or use Forgot your password.";
     }
     return msg || "Something went wrong — please try again.";
 }
@@ -5226,12 +3722,12 @@ function Field({ label, required, error, children, width }) {
         error && React.createElement("div", { style: { fontSize: 11.5, color: "#B91C1C", marginTop: 4 } }, error)));
 }
 /* ============================================================
-   ACCOUNTS — first-time activation, sign in, reset, sign out
+   ACCOUNTS — create an account, sign in, reset, sign out
    ------------------------------------------------------------
-   First visit: full name + the activation code Purview issued,
-   then the person creates their own password (typed twice).
-   After that: email + password. Every check happens in the Apps
-   Script; passwords are never stored, only a salted hash.
+   Anyone can create an account with their name, organization,
+   work email and a password of their own. After that it is email
+   plus password. Every check happens in the Apps Script;
+   passwords are never stored, only a salted hash.
    ============================================================ */
 function PasswordRules({ pw, ctx }) {
     if (!pw)
@@ -5262,53 +3758,8 @@ function StepHead({ step, title, sub }) {
         React.createElement("div", { style: { fontSize: 16.5, fontWeight: 900, color: C.navy, marginTop: step ? 3 : 0 } }, title),
         sub && React.createElement("div", { style: { fontSize: 13, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, sub)));
 }
-/* Shown the first time someone opens "First time here": how to make their
-   code when the activation sheet has none for them. */
-function CodeHelp({ onClose }) {
-    useEffect(() => {
-        const onKey = (e) => { if (e.key === "Escape")
-            onClose(); };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, []);
-    const part = {
-        flex: "1 1 120px", background: "#fff", border: "1px solid #BFE5E5", borderRadius: 8, padding: "9px 10px",
-        fontSize: 12.5, fontWeight: 800, color: C.navy, textAlign: "center", lineHeight: 1.35,
-    };
-    return (React.createElement("div", { role: "dialog", "aria-modal": "true", "aria-labelledby": "astra-code-help-title", onClick: onClose, style: {
-            position: "fixed", inset: 0, zIndex: 9998, background: "rgba(15,42,67,.45)",
-            display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
-        } },
-        React.createElement("div", { className: "astra-rise astra-orbit", onClick: (e) => e.stopPropagation(), style: {
-                background: "#fff", borderRadius: 14, width: "min(430px, 100%)", boxShadow: "0 18px 48px rgba(15,42,67,.3)", overflow: "hidden",
-            } },
-            React.createElement("div", { style: { background: GRAD, color: "#fff", padding: "16px 20px", position: "relative", overflow: "hidden" } },
-                React.createElement(HeroStars, null),
-                React.createElement("div", { id: "astra-code-help-title", style: { position: "relative", zIndex: 1, fontSize: 16.5, fontWeight: 900 } },
-                    "Can't find your activation code? ",
-                    React.createElement("span", { className: "astra-pop", "aria-hidden": "true" }, "\uD83D\uDD11"))),
-            React.createElement("div", { style: { padding: 20 } },
-                React.createElement("div", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.6 } }, "If there's no code next to your name on the activation sheet, your code is:"),
-                React.createElement("div", { style: { marginTop: 12, display: "flex", alignItems: "stretch", gap: 8, flexWrap: "wrap", background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 10, padding: 10 } },
-                    React.createElement("div", { style: part }, "First 3 letters of your first name"),
-                    React.createElement("div", { style: { alignSelf: "center", fontSize: 18, fontWeight: 900, color: C.teal } }, "+"),
-                    React.createElement("div", { style: part }, "Last 3 digits of your Employee ID")),
-                React.createElement("div", { style: { marginTop: 12, fontSize: 13, color: C.ink, textAlign: "center", lineHeight: 1.6 } },
-                    "Example: ",
-                    React.createElement("b", null, "Pri"),
-                    "ya Sharma, PHC",
-                    React.createElement("b", null, "456"),
-                    " \u2192",
-                    " ",
-                    React.createElement("span", { style: { fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", fontWeight: 800, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 5, padding: "1px 6px" } }, "PRI456")),
-                React.createElement("div", { style: { marginTop: 6, fontSize: 12, color: C.soft, textAlign: "center" } }, "Capital letters don't matter."),
-                React.createElement("button", { onClick: onClose, autoFocus: true, style: {
-                        width: "100%", marginTop: 18, background: GRAD, color: "#fff", border: "none",
-                        borderRadius: 8, padding: "12px 18px", fontSize: 14.5, fontWeight: 800, cursor: "pointer",
-                    } }, "Got it")))));
-}
 function Landing({ onDone, onAdmin, notice }) {
-    const [mode, setMode] = useState("signin"); // signin | signup | activate | setpw | newpw | reset
+    const [mode, setMode] = useState("signin"); // signin | signup | newpw | reset
     const [f, setF] = useState({ email: "", password: "", confirm: "", name: "", code: "", newEmail: "", greetAs: "",
         firstName: "", lastName: "", org: "", address1: "", address2: "",
         city: "", state: "", zip: "" });
@@ -5340,17 +3791,11 @@ function Landing({ onDone, onAdmin, notice }) {
     const onKey = (handler) => (e) => { if (e.key === "Enter")
         handler(); };
     const failWith = (err) => { setMsg(friendlyAuthError(err)); scrollErrorIntoView(); };
-    const [codeHelp, setCodeHelp] = useState(false);
     const helpShown = useRef(false);
     const nameRef = useRef(null);
     useEffect(() => {
-        if (mode === "activate" && !helpShown.current) {
-            helpShown.current = true;
-            setCodeHelp(true);
-        }
     }, [mode]);
     const closeHelp = () => {
-        setCodeHelp(false);
         setTimeout(() => { if (nameRef.current && !nameRef.current.value)
             nameRef.current.focus(); }, 30);
     };
@@ -5445,75 +3890,6 @@ function Landing({ onDone, onAdmin, notice }) {
         }
     };
     /* ---------------- first time, step 1: name + code ---------------- */
-    const doCheckCode = async () => {
-        const e = {};
-        if (!nameWords(f.name).length)
-            e.name = "Enter your full name or Employee ID";
-        if (!f.code.trim())
-            e.code = "Enter your activation code";
-        setErrors(e);
-        if (Object.keys(e).length)
-            return;
-        setBusy(true);
-        setMsg(null);
-        try {
-            const data = await callSheet("activateCheck", { name: f.name.trim(), code: f.code.trim() });
-            const listed = data.name || f.name.trim();
-            setWho({ name: listed, email: data.email || "", org: data.org || "", empId: data.empId || "" });
-            setF((prev) => ({ ...prev, greetAs: prev.greetAs || firstWord(listed) }));
-            clearPasswords();
-            go("setpw");
-        }
-        catch (err) {
-            failWith(err);
-        }
-        finally {
-            setBusy(false);
-        }
-    };
-    /* ---------------- first time, step 2: create password ---------------- */
-    const doActivate = async () => {
-        const e = {};
-        if (!who.email) {
-            if (!f.newEmail.trim())
-                e.newEmail = "Enter your work email";
-            else if (!EMAIL_RE.test(f.newEmail.trim()))
-                e.newEmail = "Enter a valid email address";
-        }
-        if (!f.password)
-            e.password = "Create a password";
-        else {
-            const p = passwordProblem(f.password, { code: f.code, name: who.name, empId: who.empId });
-            if (p)
-                e.password = p;
-        }
-        if (!f.confirm)
-            e.confirm = "Type the same password again";
-        else if (f.confirm !== f.password)
-            e.confirm = "Passwords don't match";
-        setErrors(e);
-        if (Object.keys(e).length)
-            return;
-        setBusy(true);
-        setMsg(null);
-        try {
-            const data = await callSheet("activate", {
-                name: f.name.trim(), code: f.code.trim(), password: f.password,
-                email: who.email ? "" : f.newEmail.trim().toLowerCase(),
-                greetAs: f.greetAs.trim(),
-            });
-            finish(data, { justActivated: true });
-        }
-        catch (err) {
-            // If the code itself is the problem, step 2 can't fix it — go back to step 1.
-            if (err && ["NO_MATCH", "USED", "DISABLED", "LOCKED", "NOT_SET_UP"].includes(err.code))
-                go("activate");
-            failWith(err);
-        }
-        finally {
-            setBusy(false);
-        }
-    };
     /* ---------------- after signing in with a temporary password ---------------- */
     const doNewPassword = async () => {
         const e = {};
@@ -5600,7 +3976,7 @@ function Landing({ onDone, onAdmin, notice }) {
                         React.createElement("div", { style: { fontSize: 13.5, marginTop: 5, lineHeight: 1.55, opacity: 0.95, maxWidth: 380 } }, "CPT and HCPCS coding rules traced to their CMS source."))),
                 React.createElement("div", { style: { display: "flex", background: C.bg, borderLeft: `1px solid ${C.line}`, borderRight: `1px solid ${C.line}` } },
                     React.createElement(Tab, { id: "signin", label: "Sign in", alsoFor: ["reset", "newpw"] }),
-                    React.createElement(Tab, { id: "signup", label: "Create account", alsoFor: ["activate", "setpw"] })),
+                    React.createElement(Tab, { id: "signup", label: "Create account" })),
                 React.createElement("div", { style: { background: "#fff", border: `1px solid ${C.line}`, borderTop: "none", borderRadius: "0 0 12px 12px", padding: 24 } },
                     notice && mode === "signin" && !msg && (React.createElement("div", { style: { marginBottom: 16, padding: "11px 13px", background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } }, notice)),
                     mode === "signin" && (React.createElement(React.Fragment, null,
@@ -5619,9 +3995,7 @@ function Landing({ onDone, onAdmin, notice }) {
                         React.createElement("div", { style: { marginTop: 18, padding: "12px 14px", background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 8, fontSize: 12.5, color: C.ink, lineHeight: 1.6 } },
                             React.createElement("b", null, "First time here?"),
                             " ",
-                            React.createElement("button", { onClick: () => go("signup"), style: { ...linkBtn, fontWeight: 800 } }, "Create an account \u2192")),
-                        React.createElement("div", { style: { textAlign: "center", marginTop: 12, fontSize: 11.5, color: C.soft } },
-                            React.createElement("button", { onClick: () => go("activate"), style: { ...linkBtn, fontSize: 11.5, color: C.soft, textDecoration: "underline" } }, "Purview staff with an activation code")))),
+                            React.createElement("button", { onClick: () => go("signup"), style: { ...linkBtn, fontWeight: 800 } }, "Create an account \u2192")))),
                     mode === "signup" && (React.createElement(React.Fragment, null,
                         React.createElement(StepHead, { title: "Create your account", sub: "A minute to set up. You'll sign in with this email and a password of your own." }),
                         React.createElement("div", { style: { display: "flex", gap: 10 } },
@@ -5665,72 +4039,7 @@ function Landing({ onDone, onAdmin, notice }) {
                         React.createElement("button", { onClick: doSignUp, disabled: busy, style: primaryBtn }, busy ? "Creating your account…" : "Create account"),
                         React.createElement("div", { style: { textAlign: "center", marginTop: 12 } },
                             React.createElement("button", { onClick: () => go("signin"), style: { ...linkBtn, color: C.soft } }, "Already have an account? Sign in")),
-                        React.createElement("div", { style: { textAlign: "center", marginTop: 10, fontSize: 11.5, color: C.soft } },
-                            React.createElement("button", { onClick: () => go("activate"), style: { ...linkBtn, fontSize: 11.5, color: C.soft, textDecoration: "underline" } }, "Purview staff with an activation code")),
                         React.createElement("div", { style: { marginTop: 14, fontSize: 12, color: C.soft, lineHeight: 1.6 } }, "Coding Astra holds no patient information, and none should ever be typed into it."))),
-                    mode === "activate" && (React.createElement(React.Fragment, null,
-                        React.createElement(StepHead, { step: "STEP 1 OF 2", title: "Activate your account", sub: "Copy your details from the activation sheet your team lead shared. You only do this once." }),
-                        React.createElement(Field, { label: "Full name or Employee ID", required: true, error: errors.name },
-                            React.createElement("input", { ref: nameRef, "aria-label": "Full name or Employee ID", value: f.name, onChange: set("name"), onKeyDown: onKey(doCheckCode), autoComplete: "name", autoFocus: true, placeholder: "Exactly as on your activation sheet", style: inputStyle(errors.name) }),
-                            !errors.name && (React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 5, lineHeight: 1.5 } },
-                                "Your ",
-                                React.createElement("b", null, "name exactly as in column A"),
-                                ", or your ",
-                                React.createElement("b", null, "Employee ID from column B"),
-                                " (like PHC456)."))),
-                        React.createElement("div", { style: { marginTop: 14 } },
-                            React.createElement(Field, { label: "Activation code", required: true, error: errors.code },
-                                React.createElement("input", { "aria-label": "Activation code", value: f.code, onChange: set("code"), onKeyDown: onKey(doCheckCode), autoComplete: "off", autoCapitalize: "characters", autoCorrect: "off", spellCheck: false, placeholder: "From your row of the sheet", style: { ...inputStyle(errors.code), fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", letterSpacing: 1 } }),
-                                !errors.code && (React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 5, lineHeight: 1.5 } },
-                                    "No code in your row? Use the ",
-                                    React.createElement("b", null, "first 3 letters of your first name"),
-                                    " + the ",
-                                    React.createElement("b", null, "last 3 digits of your Employee ID"),
-                                    ".",
-                                    " ",
-                                    React.createElement("button", { type: "button", onClick: () => setCodeHelp(true), style: { ...linkBtn, fontSize: 11.5 } }, "Show me"))))),
-                        React.createElement("button", { onClick: doCheckCode, disabled: busy, style: primaryBtn }, busy ? "Checking…" : "Continue"),
-                        React.createElement("div", { style: { textAlign: "center", marginTop: 12 } },
-                            React.createElement("button", { onClick: () => go("signin"), style: { ...linkBtn, color: C.soft } }, "Already have an account? Sign in")))),
-                    mode === "setpw" && who && (React.createElement(React.Fragment, null,
-                        React.createElement(StepHead, { step: "STEP 2 OF 2", title: "Create your password", sub: React.createElement(React.Fragment, null,
-                                "Welcome, ",
-                                React.createElement("b", null, who.name),
-                                ". Choose a password only you know \u2014 you'll use it every time you sign in.") }),
-                        (who.empId || who.email) && (React.createElement("div", { style: infoBox },
-                            who.empId ? React.createElement(React.Fragment, null,
-                                "Your sign-in ID is ",
-                                React.createElement("b", null, who.empId)) : React.createElement(React.Fragment, null,
-                                "You'll sign in with ",
-                                React.createElement("b", null, who.email)),
-                            React.createElement("input", { type: "text", name: "username", autoComplete: "username", value: who.empId || who.email, readOnly: true, "aria-hidden": "true", tabIndex: -1, style: { display: "none" } }))),
-                        !who.email && (React.createElement("div", { style: { marginBottom: 14 } },
-                            React.createElement(Field, { label: "Work email", required: true, error: errors.newEmail },
-                                React.createElement("input", { "aria-label": "Work email", value: f.newEmail, onChange: set("newEmail"), onKeyDown: onKey(doActivate), type: "email", autoComplete: who.empId ? "email" : "username", autoFocus: true, placeholder: "you@purviewhealthcare.com", style: inputStyle(errors.newEmail) })),
-                            React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 5, lineHeight: 1.5 } }, who.empId
-                                ? "Only used to email you a temporary password if you ever forget yours."
-                                : "You'll sign in with this. It's also where a temporary password goes if you ever forget yours."))),
-                        React.createElement("div", { style: { marginBottom: 14 } },
-                            React.createElement(Field, { label: "What should we call you?" },
-                                React.createElement("input", { "aria-label": "What should we call you?", value: f.greetAs, onChange: set("greetAs"), onKeyDown: onKey(doActivate), maxLength: 30, autoComplete: "nickname", placeholder: "First name or nickname", style: inputStyle(false) })),
-                            React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 5, lineHeight: 1.5 } },
-                                "We'll greet you with this each time you open Coding Astra \u2014 \"What's up, ",
-                                f.greetAs.trim() || firstWord(who.name),
-                                "?\"")),
-                        React.createElement(Field, { label: "Create password", required: true, error: errors.password },
-                            React.createElement(PasswordInput, { ariaLabel: "Create password", value: f.password, onChange: set("password"), onKeyDown: onKey(doActivate), autoComplete: "new-password", placeholder: "At least 8 characters", bad: !!errors.password, autoFocus: !!who.email }),
-                            !errors.password && React.createElement(PasswordRules, { pw: f.password, ctx: { code: f.code, name: who.name, empId: who.empId } })),
-                        React.createElement("div", { style: { marginTop: 14 } },
-                            React.createElement(Field, { label: "Confirm password", required: true, error: errors.confirm },
-                                React.createElement(PasswordInput, { ariaLabel: "Confirm password", value: f.confirm, onChange: set("confirm"), onKeyDown: onKey(doActivate), autoComplete: "new-password", placeholder: "Type it again", bad: !!errors.confirm }),
-                                !errors.confirm && React.createElement(MatchNote, { pw: f.password, confirm: f.confirm }))),
-                        React.createElement("div", { style: { marginTop: 14, fontSize: 12, color: C.soft, lineHeight: 1.6 } },
-                            "Remember this password \u2014 nobody at Purview can see it or look it up. If you forget it, use ",
-                            React.createElement("b", null, "Forgot your password?"),
-                            " on the sign-in screen."),
-                        React.createElement("button", { onClick: doActivate, disabled: busy, style: primaryBtn }, busy ? "Activating…" : "Activate account"),
-                        React.createElement("div", { style: { textAlign: "center", marginTop: 12 } },
-                            React.createElement("button", { onClick: () => go("activate"), style: { ...linkBtn, color: C.soft } }, "\u2190 Back")))),
                     mode === "newpw" && (React.createElement(React.Fragment, null,
                         React.createElement(StepHead, { title: "Create a new password", sub: "You signed in with a temporary password. Choose your own now to continue \u2014 the temporary one stops working once you do." }),
                         React.createElement("div", { style: infoBox },
@@ -5755,7 +4064,6 @@ function Landing({ onDone, onAdmin, notice }) {
                             React.createElement("button", { onClick: () => go("signin"), style: { ...linkBtn, color: C.soft } }, "\u2190 Back to sign in")))),
                     msg && (React.createElement("div", { id: "astra-form-error", role: "alert", style: { marginTop: 16, padding: "11px 13px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B", lineHeight: 1.55 } }, msg)),
                     note && (React.createElement("div", { role: "status", style: { marginTop: 16, padding: "11px 13px", background: "#EFFBF4", border: "1px solid #BFE9D2", borderRadius: 8, fontSize: 13, color: "#166534", lineHeight: 1.55 } }, note)))),
-            codeHelp && React.createElement(CodeHelp, { onClose: closeHelp }),
             React.createElement("div", { style: { textAlign: "center", marginTop: 16 } },
                 React.createElement("button", { onClick: onAdmin, style: { background: "transparent", border: "none", color: C.soft, fontSize: 12.5, fontWeight: 700, cursor: "pointer", textDecoration: "underline" } }, "Administrator sign in"),
                 React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 10, lineHeight: 1.6 } },
@@ -5782,6 +4090,11 @@ async function saveAccess(creds, targetEmail, specialties) {
         email: creds.email, password: creds.pw, targetEmail, specialties,
     });
 }
+async function removeUser(creds, targetEmail) {
+    return callSheet("adminRemoveUser", {
+        email: creds.email, password: creds.pw, targetEmail,
+    });
+}
 /* "ALL" or a list of CMS specialty codes. */
 function allowedFor(account) {
     if (!account)
@@ -5798,7 +4111,6 @@ async function fetchUsers(creds) {
     return {
         users: Array.isArray(data.users) ? data.users : [],
         sheetUrl: data.sheetUrl || "",
-        activation: data.activation || null,
     };
 }
 function AdminLogin({ onBack, onDone }) {
@@ -5938,100 +4250,6 @@ function fmtDay(iso) {
         return String(iso);
     }
 }
-const CODE_STATUS = {
-    activated: { label: "Activated", bg: "#EFFBF4", bd: "#BFE9D2", fg: "#166534" },
-    open: { label: "Not yet", bg: "#FEF3E2", bd: "#FCD9A8", fg: "#92400E" },
-    disabled: { label: "Switched off", bg: "#F1F5F9", bd: "#CBD5E1", fg: "#475569" },
-};
-/* Who has used their activation code. The codes themselves never
-   leave the spreadsheet — this shows names and status only. */
-function ActivationPanel({ activation, sheetUrl }) {
-    const [q, setQ] = useState("");
-    const [show, setShow] = useState("all");
-    if (!activation)
-        return null;
-    const rows = activation.rows || [];
-    const t = q.trim().toLowerCase();
-    const list = rows.filter((r) => (show === "all" || r.status === show) &&
-        (!t || [r.name, r.empId, r.email, r.org, r.activatedEmail].join(" ").toLowerCase().includes(t)));
-    const problem = {
-        missing: "There's no Activation codes tab in the spreadsheet yet.",
-        empty: "The Activation codes tab has no codes in it yet.",
-        headers: "The Activation codes tab doesn't have column headings the app recognises.",
-    }[activation.problem] || "";
-    const th = { textAlign: "left", fontSize: 11, fontWeight: 800, color: C.soft, letterSpacing: 0.3, textTransform: "uppercase", padding: "10px 12px", borderBottom: `1px solid ${C.line}`, whiteSpace: "nowrap" };
-    const td = { fontSize: 13, color: C.ink, padding: "11px 12px", borderBottom: `1px solid ${C.bg}`, verticalAlign: "top", overflowWrap: "anywhere" };
-    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" } },
-        React.createElement("div", { style: { padding: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", borderBottom: `1px solid ${C.line}` } },
-            React.createElement("div", { style: { flex: 1, minWidth: 160 } },
-                React.createElement("div", { style: { fontSize: 15, fontWeight: 900, color: C.navy } }, "Activation codes"),
-                React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 3 } }, activation.configured
-                    ? `${activation.activated} of ${activation.total} activated${activation.disabled ? ` · ${activation.disabled} switched off` : ""}`
-                    : "Not set up yet")),
-            activation.configured && (React.createElement(React.Fragment, null,
-                React.createElement("select", { "aria-label": "Show", value: show, onChange: (e) => setShow(e.target.value), style: { padding: "9px 10px", fontSize: 13, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, background: "#fff" } },
-                    React.createElement("option", { value: "all" }, "Everyone"),
-                    React.createElement("option", { value: "open" }, "Not activated yet"),
-                    React.createElement("option", { value: "activated" }, "Activated"),
-                    React.createElement("option", { value: "disabled" }, "Switched off")),
-                React.createElement("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search name, Employee ID or email\u2026", style: { flex: "1 1 180px", padding: "9px 12px", fontSize: 13.5, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } })))),
-        !activation.configured && (React.createElement("div", { style: { padding: 16, fontSize: 13, color: C.ink, lineHeight: 1.65 } },
-            problem,
-            " In the spreadsheet",
-            sheetUrl && React.createElement(React.Fragment, null,
-                " (",
-                React.createElement("a", { href: sheetUrl, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 700 } }, "open it"),
-                ")"),
-            ", go to the ",
-            React.createElement("b", null, "Activation codes"),
-            " tab and paste your list, header row first, starting at cell A1. It needs a ",
-            React.createElement("b", null, "Name"),
-            " column (or First name + Last name) and an ",
-            React.createElement("b", null, "Activation code"),
-            " column; ",
-            React.createElement("b", null, "Employee ID"),
-            ", ",
-            React.createElement("b", null, "Email"),
-            " and ",
-            React.createElement("b", null, "Organization"),
-            " are optional. The app adds Status, Activated on and Activated email by itself.")),
-        activation.configured && (list.length === 0 ? (React.createElement("div", { style: { padding: 24, textAlign: "center", color: C.soft, fontSize: 14 } }, "No one matches.")) : (React.createElement("div", { style: { overflowX: "auto" } },
-            React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", minWidth: 740 } },
-                React.createElement("thead", null,
-                    React.createElement("tr", null,
-                        React.createElement("th", { style: th }, "Name"),
-                        React.createElement("th", { style: th }, "Employee ID"),
-                        React.createElement("th", { style: th }, "Email on list"),
-                        React.createElement("th", { style: th }, "Status"),
-                        React.createElement("th", { style: th }, "Activated"),
-                        React.createElement("th", { style: th }, "Signs in as"))),
-                React.createElement("tbody", null, list.map((r, i) => {
-                    const s = CODE_STATUS[r.status] || CODE_STATUS.open;
-                    return (React.createElement("tr", { key: i },
-                        React.createElement("td", { style: { ...td, fontWeight: 700 } },
-                            r.name || "—",
-                            r.org && React.createElement("div", { style: { fontSize: 11.5, color: C.soft, fontWeight: 400, marginTop: 2 } }, r.org)),
-                        React.createElement("td", { style: td }, r.empId || "—"),
-                        React.createElement("td", { style: td }, r.email || "—"),
-                        React.createElement("td", { style: td },
-                            React.createElement("span", { style: { fontSize: 11.5, fontWeight: 800, padding: "2px 8px", borderRadius: 4, background: s.bg, color: s.fg, border: `1px solid ${s.bd}`, whiteSpace: "nowrap" } }, s.label)),
-                        React.createElement("td", { style: td }, r.status === "activated" ? fmtDay(r.activatedOn) : "—"),
-                        React.createElement("td", { style: td }, r.activatedEmail || "—")));
-                })))))),
-        React.createElement("div", { style: { padding: "10px 16px", fontSize: 11.5, color: C.soft, borderTop: `1px solid ${C.line}`, lineHeight: 1.6 } },
-            "Codes are never shown here. To switch a code off before it's used, type ",
-            React.createElement("b", null, "Disabled"),
-            " in its Status cell. To let someone activate again, delete their row on the Signups tab and clear their Status cell.")));
-}
-/* ============================================================
-   AI TAB  (administrator only)
-   ------------------------------------------------------------
-   The Google AI key is typed here once and goes straight to the
-   Google Sheet's script, which keeps it in Script Properties
-   beside the admin password. It is never written into this page
-   and never kept in the browser; the sheet only ever sends back
-   the last four characters, so nobody can read it out again.
-   ============================================================ */
 const AI_MODELS = [
     ["gemini-3.5-flash-lite", "Flash-Lite 3.5 — fastest and cheapest (recommended)"],
     ["gemini-3.1-flash-lite", "Flash-Lite 3.1 — the earlier lite model"],
@@ -6365,6 +4583,12 @@ function idleDays(u) {
     }
     return Math.max(0, Math.floor((Date.now() - t) / 86400000));
 }
+/* A zero is worth seeing, so it is shown rather than dashed out -
+   greyed, so a busy column still reads at a glance. */
+function Count({ n }) {
+    const v = Number(n) || 0;
+    return React.createElement("span", { style: { color: v ? C.ink : C.soft, fontWeight: v ? 700 : 400 } }, v);
+}
 function LastUsed({ user }) {
     const days = idleDays(user);
     const everUsed = !!(user && user.lastUsedAt && !isNaN(Date.parse(user.lastUsedAt)));
@@ -6377,8 +4601,9 @@ function LastUsed({ user }) {
 }
 function AdminPanel({ account }) {
     const [users, setUsers] = useState(null);
-    const [activation, setActivation] = useState(null);
     const [editing, setEditing] = useState(null);
+    const [confirming, setConfirming] = useState(null); // email awaiting a second click
+    const [removing, setRemoving] = useState(null);
     const [sheetUrl, setSheetUrl] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
@@ -6390,7 +4615,6 @@ function AdminPanel({ account }) {
             const res = await fetchUsers(account);
             setUsers(res.users);
             setSheetUrl(res.sheetUrl);
-            setActivation(res.activation);
         }
         catch (e) {
             setError(friendlyAuthError(e));
@@ -6400,17 +4624,34 @@ function AdminPanel({ account }) {
         }
     };
     useEffect(() => { load(); }, []);
+    /* Two clicks, never a browser pop-up: the first turns the link into
+       "Remove?" with a way back, the second does it. */
+    const doRemove = async (email) => {
+        setRemoving(email);
+        setError(null);
+        try {
+            await removeUser({ email: account.email, pw: account.pw }, email);
+            setUsers((list) => (list || []).filter((x) => x.email !== email));
+            setConfirming(null);
+        }
+        catch (e) {
+            setError(friendlyAuthError(e));
+        }
+        finally {
+            setRemoving(null);
+        }
+    };
     const filtered = useMemo(() => {
         if (!users)
             return [];
         const t = q.trim().toLowerCase();
         if (!t)
             return users;
-        return users.filter((u) => [u.firstName, u.lastName, u.org, u.email, u.empId, u.city, u.state]
+        return users.filter((u) => [u.firstName, u.lastName, u.org, u.email, u.city, u.state]
             .join(" ").toLowerCase().includes(t));
     }, [users, q]);
     const downloadCsv = () => {
-        const cols = ["firstSeenAt", "registeredAt", "lastUsedAt", "firstName", "lastName", "empId", "greetAs", "org", "email",
+        const cols = ["firstSeenAt", "registeredAt", "lastUsedAt", "searches", "questions", "firstName", "lastName", "greetAs", "org", "email",
             "phone", "address1", "address2", "city", "state", "zip", "country", "specialties"];
         const cell = (v) => {
             let str = String(v == null ? "" : v);
@@ -6436,7 +4677,6 @@ function AdminPanel({ account }) {
     const dormant = useMemo(() => (users || []).filter((u) => idleDays(u) >= 14).length, [users]);
     const stats = [
         ["Accounts", users ? users.length : "—"],
-        ["Codes activated", activation && activation.configured ? `${activation.activated} / ${activation.total}` : "—"],
         ["Organizations", users ? orgCount : "—"],
         ["Quiet 14 days+", users ? dormant : "—"],
     ];
@@ -6463,7 +4703,7 @@ function AdminPanel({ account }) {
         React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" } },
             React.createElement("div", { style: { padding: 16, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", borderBottom: `1px solid ${C.line}` } },
                 React.createElement("div", { style: { fontSize: 15, fontWeight: 900, color: C.navy, flex: 1, minWidth: 140 } }, "Accounts"),
-                React.createElement("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search name, Employee ID, email\u2026", style: { flex: "1 1 220px", padding: "9px 12px", fontSize: 13.5, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } }),
+                React.createElement("input", { value: q, onChange: (e) => setQ(e.target.value), placeholder: "Search name, organization or email\u2026", style: { flex: "1 1 220px", padding: "9px 12px", fontSize: 13.5, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } }),
                 React.createElement("button", { onClick: load, disabled: busy, style: {
                         background: "#fff", color: C.teal, border: `1.5px solid ${C.teal}`, borderRadius: 7,
                         padding: "9px 14px", fontSize: 13, fontWeight: 800, cursor: busy ? "wait" : "pointer",
@@ -6480,13 +4720,15 @@ function AdminPanel({ account }) {
                     React.createElement("thead", null,
                         React.createElement("tr", null,
                             React.createElement("th", { style: th }, "Name"),
-                            React.createElement("th", { style: th }, "Employee ID"),
                             React.createElement("th", { style: th }, "Organization"),
                             React.createElement("th", { style: th }, "Email"),
+                            React.createElement("th", { style: th }, "Joined"),
                             React.createElement("th", { style: th }, "Last sign in"),
                             React.createElement("th", { style: th }, "Last used"),
+                            React.createElement("th", { style: { ...th, textAlign: "right" } }, "Searches"),
+                            React.createElement("th", { style: { ...th, textAlign: "right" } }, "Questions"),
                             React.createElement("th", { style: th }, "Specialty access"),
-                            React.createElement("th", { style: th }, "Since"))),
+                            React.createElement("th", { style: { ...th, textAlign: "right" } }))),
                     React.createElement("tbody", null, filtered.map((u, i) => (React.createElement(React.Fragment, { key: u.email || i },
                         React.createElement("tr", null,
                             React.createElement("td", { style: { ...td, fontWeight: 700 } },
@@ -6496,13 +4738,17 @@ function AdminPanel({ account }) {
                                 u.greetAs && u.greetAs !== u.firstName && React.createElement("div", { style: { fontSize: 11.5, color: C.soft, fontWeight: 400, marginTop: 2 } },
                                     "Goes by ",
                                     u.greetAs)),
-                            React.createElement("td", { style: td }, u.empId || "—"),
                             React.createElement("td", { style: td }, u.org || "—"),
                             React.createElement("td", { style: td },
                                 React.createElement("a", { href: `mailto:${u.email}`, style: { color: C.teal, textDecoration: "none", fontWeight: 600 } }, u.email)),
+                            React.createElement("td", { style: td }, fmtDay(u.firstSeenAt)),
                             React.createElement("td", { style: td }, fmtDay(u.registeredAt)),
                             React.createElement("td", { style: td },
                                 React.createElement(LastUsed, { user: u })),
+                            React.createElement("td", { style: { ...td, textAlign: "right", fontWeight: 700 } },
+                                React.createElement(Count, { n: u.searches })),
+                            React.createElement("td", { style: { ...td, textAlign: "right", fontWeight: 700 } },
+                                React.createElement(Count, { n: u.questions })),
                             React.createElement("td", { style: td },
                                 React.createElement("span", { style: {
                                         fontSize: 11.5, fontWeight: 800, padding: "2px 8px", borderRadius: 4,
@@ -6513,27 +4759,21 @@ function AdminPanel({ account }) {
                                     ? "All specialties"
                                     : u.specialties.length + (u.specialties.length === 1 ? " specialty" : " specialties")),
                                 React.createElement("button", { onClick: () => setEditing(editing === u.email ? null : u.email), style: { marginLeft: 8, background: "transparent", border: "none", color: C.teal, fontSize: 12, fontWeight: 800, cursor: "pointer", padding: 0 } }, editing === u.email ? "Close" : "Change")),
-                            React.createElement("td", { style: td }, fmtDay(u.firstSeenAt))),
+                            React.createElement("td", { style: { ...td, textAlign: "right", whiteSpace: "nowrap" } }, confirming === u.email ? (React.createElement(React.Fragment, null,
+                                React.createElement("button", { onClick: () => doRemove(u.email), disabled: removing === u.email, style: { background: "#991B1B", color: "#fff", border: "none", borderRadius: 6, padding: "5px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" } }, removing === u.email ? "Removing…" : "Remove"),
+                                React.createElement("button", { onClick: () => setConfirming(null), style: { marginLeft: 8, background: "transparent", border: "none", color: C.soft, fontSize: 12, fontWeight: 800, cursor: "pointer", padding: 0 } }, "Keep"))) : (React.createElement("button", { onClick: () => { setConfirming(u.email); setEditing(null); }, style: { background: "transparent", border: "none", color: C.soft, fontSize: 12, fontWeight: 800, cursor: "pointer", padding: 0 }, title: "Delete this account, its password and its sessions" }, "Remove")))),
                         editing === u.email && (React.createElement("tr", null,
-                            React.createElement("td", { colSpan: 8, style: { padding: "0 12px 14px" } },
+                            React.createElement("td", { colSpan: 10, style: { padding: "0 12px 14px" } },
                                 React.createElement(AccessEditor, { user: u, account: account, onCancel: () => setEditing(null), onSaved: (email, value) => {
                                         setUsers((list) => (list || []).map((x) => x.email === email ? { ...x, specialties: value } : x));
                                         setEditing(null);
                                     } })))))))))))),
-        React.createElement(ActivationPanel, { activation: activation, sheetUrl: sheetUrl }),
-        React.createElement("div", { style: { fontSize: 12, color: C.soft, lineHeight: 1.6 } }, "To remove someone's access, delete their row on the Signups tab of the spreadsheet \u2014 they're signed out on every device the next time the app loads.")));
+        React.createElement("div", { style: { fontSize: 12, color: C.soft, lineHeight: 1.6 } },
+            React.createElement("b", null, "Remove"),
+            " deletes that account, its password and every device it is signed in on \u2014 immediately, and it cannot be undone. Their rows in the activity log stay, so your usage history isn't rewritten.")));
 }
 /* ============================================================
    MODIFIER + POS CHECKER
-   ============================================================ */
-const VERDICT_STYLE = {
-    ok: { bg: "#EFFBF4", bd: "#BFE9D2", fg: "#166534", chip: "#16A34A", label: "Works" },
-    caution: { bg: "#FEF3E2", bd: "#FCD9A8", fg: "#92400E", chip: "#D97706", label: "Conditional" },
-    no: { bg: "#FEF2F2", bd: "#FECACA", fg: "#991B1B", chip: "#DC2626", label: "Will not work" },
-    unknown: { bg: "#F5F7F9", bd: "#DCE8EC", fg: "#5A7A8C", chip: "#94A3B8", label: "No rule documented" },
-};
-/* ============================================================
-   ASK ASTRA — coding chatbot grounded in CMS
    ============================================================ */
 const CHAT_SYSTEM = `You are Astra, a medical coding assistant for Purview Healthcare, a US revenue cycle management company. You answer questions from professional billers and coders about CPT, HCPCS, ICD-10, modifiers, place of service, coverage, denials and Medicare billing rules.
 
@@ -7058,25 +5298,6 @@ function App() {
     const allowed = allowedFor(account);
     const limited = allowed !== "ALL";
     const [tab, setTab] = useState("rules");
-    const [cms, setCms] = useState(() => {
-        const saved = safeStore.get("astraClaimType");
-        return { rvu: [], mue: [], dmepos: [], dos: "", sample: safeStore.get("astraSample") === "1",
-            claimType: ["Practitioner", "DME", "Facility"].includes(saved) ? saved : "Practitioner" };
-    });
-    const [cmsRestoring, setCmsRestoring] = useState(true);
-    // Bring back the CMS files this computer has loaded before.
-    useEffect(() => {
-        let alive = true;
-        savedFiles.all()
-            .then((list) => { if (alive && list.length)
-            setCms((c) => mergeDatasets(c, list)); })
-            .catch(() => { })
-            .then(() => { if (alive)
-            setCmsRestoring(false); });
-        return () => { alive = false; };
-    }, []);
-    useEffect(() => { safeStore.set("astraClaimType", cms.claimType); }, [cms.claimType]);
-    useEffect(() => { safeStore.set("astraSample", cms.sample ? "1" : "0"); }, [cms.sample]);
     // AI requests are made as the signed-in person, so the sheet can hold them to its daily limits.
     useEffect(() => { setAiAuth(account); }, [account]);
     const [spec, setSpec] = useState(null);
@@ -7189,7 +5410,6 @@ function App() {
     };
     const tabs = [
         { id: "rules", label: "Coding rules" },
-        { id: "lookup", label: cms.rvu.length ? `Code lookup · ${cms.rvu[0].codes.toLocaleString()} codes` : "Code lookup" },
         { id: "mods", label: "Modifiers" },
         { id: "pos", label: "POS codes" },
         { id: "cms", label: "CMS sources" },
@@ -7263,9 +5483,7 @@ function App() {
                     React.createElement(AiLookupBlock, { topic: `Most commonly billed CPT and HCPCS codes for Medicare specialty ${spec[0]} (${spec[1]}), with their POS codes, required modifiers, covered ICD-10 diagnoses, frequency limits, and the CMS references`, label: `Look up ${spec[1]} coding rules on cms.gov`, hint: "Or open the CMS sources tab to check manually" }))),
                 React.createElement("div", { id: "astra-rules", style: { display: "grid", gap: 12, scrollMarginTop: 16 } }, filtered.length === 0 ? (React.createElement("div", { style: { background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 10, padding: 22 } },
                     React.createElement("div", { style: { fontSize: 14, fontWeight: 800, color: C.navy } }, query.trim() ? `No curated rule for "${query.trim()}" yet` : "Nothing in the curated library matches"),
-                    React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, cms.rvu
-                        ? "Try the Code lookup tab — it resolves every code in the CMS fee schedule file you loaded."
-                        : "Look it up live against CMS, or load the CMS files on the Code lookup tab to resolve every code."),
+                    React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, "Look it up live against current CMS guidance below, or see the CMS sources tab for where a rule like this is published."),
                     query.trim() && (React.createElement(AiLookupBlock, { topic: `${query.trim()} — current Medicare rules: which POS codes apply, which modifiers, covered ICD-10 diagnoses, unit and frequency limits, and the latest transmittal/CR or MLN Matters reference`, label: `Look up "${query.trim()}" on cms.gov`, hint: "Searches CMS and returns the rule with its citation" })))) : filtered.map((r, i) => React.createElement(RuleCard, { key: i, r: r }))))),
             tab === "mods" && (React.createElement(React.Fragment, null,
                 React.createElement("input", { value: modQ, onChange: (e) => setModQ(e.target.value), placeholder: "Search modifiers \u2014 code or keyword (e.g. GT, 59, telehealth, anesthesia)\u2026", style: { ...inputStyle, width: "100%", boxSizing: "border-box", marginBottom: 14 } }),
@@ -7288,7 +5506,6 @@ function App() {
                         React.createElement("div", { style: { fontWeight: 700, fontSize: 13.5, color: C.ink } }, n),
                         React.createElement("div", { style: { fontSize: 12.5, color: C.soft, lineHeight: 1.5, marginTop: 2 } }, d)))))),
                 React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 12 } }, POS_UNASSIGNED))),
-            tab === "lookup" && React.createElement(CodeLookup, { cms: cms, setCms: setCms, restoring: cmsRestoring }),
             tab === "cms" && React.createElement(CmsSources, null),
             tab === "admin" && isAdmin && React.createElement(AdminPanel, { account: account }),
             tab === "ai" && isAdmin && React.createElement(AiPanel, { account: account })),
