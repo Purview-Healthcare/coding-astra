@@ -4516,6 +4516,83 @@ function UsageList({ title, rows, empty, tone, suffix }) {
                     r.value,
                     suffix || ""))))))));
 }
+/* What people wrote in the feedback tab, newest first. */
+const FEEDBACK_TONE = {
+    problem: { label: "Something is wrong", color: "#991B1B", bg: "#FEF2F2", edge: "#FBD5D5" },
+    idea: { label: "An idea", color: "#B45309", bg: "#FEF3E2", edge: "#FCD9A8" },
+    good: { label: "This helped", color: "#166534", bg: "#EFFBF4", edge: "#BFE9D2" },
+};
+function FeedbackCard({ account }) {
+    const [rows, setRows] = useState(null);
+    const [total, setTotal] = useState(0);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState(null);
+    const [show, setShow] = useState("all");
+    const creds = { email: account.email, password: account.pw };
+    const load = async () => {
+        setBusy(true);
+        setError(null);
+        try {
+            const r = await callSheet("feedbackList", { ...creds, limit: 40 });
+            setRows(r.feedback || []);
+            setTotal(r.total || 0);
+        }
+        catch (e) {
+            setError(friendlyAuthError(e));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    useEffect(() => { load(); }, []);
+    const shown = useMemo(() => (rows || []).filter((r) => show === "all" || r.kind === show), [rows, show]);
+    const counts = useMemo(() => {
+        const c = { problem: 0, idea: 0, good: 0 };
+        (rows || []).forEach((r) => { if (c[r.kind] !== undefined)
+            c[r.kind]++; });
+        return c;
+    }, [rows]);
+    const pill = (on) => ({
+        border: `1.5px solid ${on ? C.teal : C.line}`, background: on ? C.teal : "#fff",
+        color: on ? "#fff" : C.soft, borderRadius: 999, padding: "6px 13px",
+        fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit",
+    });
+    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.cyan}`, borderRadius: 10, padding: 16 } },
+        React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" } },
+            React.createElement("div", { style: { fontSize: 15, fontWeight: 900, color: C.navy, flex: 1 } },
+                "What people told us",
+                total > 0 ? ` (${total})` : ""),
+            React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+                React.createElement("button", { onClick: () => setShow("all"), style: pill(show === "all") }, "All"),
+                React.createElement("button", { onClick: () => setShow("problem"), style: pill(show === "problem") },
+                    "Problems ",
+                    counts.problem || ""),
+                React.createElement("button", { onClick: () => setShow("idea"), style: pill(show === "idea") },
+                    "Ideas ",
+                    counts.idea || ""),
+                React.createElement("button", { onClick: () => setShow("good"), style: pill(show === "good") },
+                    "Praise ",
+                    counts.good || ""),
+                React.createElement("button", { onClick: load, disabled: busy, style: pill(false) }, busy ? "…" : "Refresh"))),
+        React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 4, lineHeight: 1.6 } }, "Sent from the Feedback tab on the right edge of every page. Each one is also emailed to the sign-up alert addresses, and kept on the hidden Feedback tab of your sheet."),
+        error && React.createElement("div", { role: "alert", style: { marginTop: 10, fontSize: 12.5, color: "#991B1B" } }, error),
+        rows && rows.length === 0 && (React.createElement("div", { style: { marginTop: 14, fontSize: 13, color: C.soft, lineHeight: 1.6 } }, "Nothing yet. It appears here the moment somebody sends something.")),
+        shown.length > 0 && (React.createElement("div", { style: { marginTop: 14, display: "grid", gap: 10, maxHeight: 420, overflowY: "auto" } }, shown.map((r, i) => {
+            const t = FEEDBACK_TONE[r.kind] || FEEDBACK_TONE.problem;
+            return (React.createElement("div", { key: i, style: { border: `1px solid ${t.edge}`, background: t.bg, borderRadius: 9, padding: "11px 13px" } },
+                React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" } },
+                    React.createElement("span", { style: { fontSize: 11, fontWeight: 900, color: t.color, letterSpacing: 0.3, textTransform: "uppercase" } }, t.label),
+                    React.createElement("span", { style: { fontSize: 12, color: C.soft, flex: 1 } }, r.where || ""),
+                    React.createElement("span", { style: { fontSize: 11.5, color: C.soft } }, r.when ? timeAgo(r.when) : "")),
+                React.createElement("div", { style: { fontSize: 13.5, color: C.ink, marginTop: 6, lineHeight: 1.6, whiteSpace: "pre-wrap" } }, r.message),
+                React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 7 } },
+                    r.name,
+                    r.org ? " · " + r.org : "",
+                    r.email && React.createElement(React.Fragment, null,
+                        " \u00B7 ",
+                        React.createElement("a", { href: `mailto:${r.email}?subject=${encodeURIComponent("Your Coding Astra feedback")}`, style: { color: C.teal, fontWeight: 700, textDecoration: "none" } }, "Reply")))));
+        })))));
+}
 function UsageCard({ account }) {
     const [days, setDays] = useState(7);
     const [data, setData] = useState(null);
@@ -4696,6 +4773,7 @@ function AdminPanel({ account }) {
                 React.createElement("span", { style: { display: "block", fontSize: 12.5, color: C.soft, marginTop: 3, lineHeight: 1.5 } }, "Every account, and your Activation codes tab. Download as Excel from File \u2192 Download. Passwords are stored only as hashes on a hidden tab \u2014 nobody can read them.")),
             React.createElement("span", { style: { fontSize: 13, fontWeight: 800, color: C.teal, whiteSpace: "nowrap" } }, "Open \u2197"))),
         React.createElement(UsageCard, { account: account }),
+        React.createElement(FeedbackCard, { account: account }),
         React.createElement(AlertsCard, { account: account }),
         React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap" } }, stats.map(([label, val]) => (React.createElement("div", { key: label, className: "astra-orbit", style: { flex: "1 1 160px", background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.teal}`, borderRadius: 10, padding: "14px 16px" } },
             React.createElement("div", { style: { fontSize: 11.5, fontWeight: 800, color: C.soft, letterSpacing: 0.3, textTransform: "uppercase" } }, label),
@@ -5206,6 +5284,174 @@ function RichText({ text }) {
     }
     return React.createElement(React.Fragment, null, blocks);
 }
+/* ============================================================
+   FEEDBACK TAB
+   ------------------------------------------------------------
+   A slim tab on the right edge, mostly tucked off the screen so
+   it never competes with the page. Click it and a small panel
+   slides out. What people write goes to a Feedback tab in the
+   sheet and to whoever gets the sign-up alerts.
+   ============================================================ */
+const FEEDBACK_WHERE = {
+    rules: "Coding rules", mods: "Modifiers", pos: "POS codes",
+    cms: "CMS sources", admin: "Admin", ai: "AI",
+};
+const FEEDBACK_KINDS = [
+    ["problem", "Something is wrong"],
+    ["idea", "I have an idea"],
+    ["good", "This helped me"],
+];
+function FeedbackTab({ tab }) {
+    const [open, setOpen] = useState(false);
+    const [kind, setKind] = useState("problem");
+    const [text, setText] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [sent, setSent] = useState(false);
+    const [error, setError] = useState(null);
+    const [spot, setSpot] = useState(null); // null until dragged
+    const boxRef = useRef(null);
+    const drag = useRef(null);
+    /* Same drag as the Ask Me button: follow the pointer's displacement,
+       and treat a press that barely moved as a click. */
+    const clamp = (x, y) => {
+        const w = typeof window !== "undefined" ? window.innerWidth : 1024;
+        const h = typeof window !== "undefined" ? window.innerHeight : 768;
+        return { x: Math.max(0, Math.min(x, w - 34)), y: Math.max(8, Math.min(y, h - 110)) };
+    };
+    const onDown = (e) => {
+        const t = e.currentTarget;
+        const r = t.getBoundingClientRect();
+        const w = typeof window !== "undefined" ? window.innerWidth : 1024;
+        const h = typeof window !== "undefined" ? window.innerHeight : 768;
+        drag.current = {
+            startX: e.clientX, startY: e.clientY,
+            baseX: r.width ? r.left : (spot ? spot.x : w - 34),
+            baseY: r.height ? r.top : (spot ? spot.y : h / 2 - 50),
+            moved: 0,
+        };
+        try {
+            t.setPointerCapture(e.pointerId);
+        }
+        catch (err) { /* older browsers */ }
+    };
+    const onMove = (e) => {
+        const dg = drag.current;
+        if (!dg)
+            return;
+        const dx = e.clientX - dg.startX, dy = e.clientY - dg.startY;
+        dg.moved = Math.abs(dx) + Math.abs(dy);
+        setSpot(clamp(dg.baseX + dx, dg.baseY + dy));
+    };
+    const onUp = (e) => {
+        const d = drag.current;
+        drag.current = null;
+        try {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+        catch (err) { }
+        if (d && d.moved < 6)
+            setOpen(true); // a press, not a drag
+    };
+    const tabPos = spot
+        ? { left: spot.x, top: spot.y, right: "auto", transform: "none" }
+        : { right: 0, top: "50%", left: "auto", transform: "translateY(-50%)" };
+    /* The panel opens beside wherever the tab ended up, and stays on screen. */
+    const panelPos = (() => {
+        if (!spot)
+            return { right: 14, top: "50%", left: "auto", transform: "translateY(-50%)" };
+        const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
+        const vh = typeof window !== "undefined" ? window.innerHeight : 768;
+        const pw = Math.min(330, vw - 28);
+        const ph = 360;
+        const left = spot.x > vw / 2 ? Math.max(14, spot.x - pw - 10) : Math.min(vw - pw - 14, spot.x + 44);
+        const top = Math.max(14, Math.min(spot.y - 40, vh - ph - 14));
+        return { left, top, right: "auto", transform: "none" };
+    })();
+    useEffect(() => {
+        if (!open)
+            return undefined;
+        try {
+            if (boxRef.current)
+                boxRef.current.focus();
+        }
+        catch (e) { /* focus is a nicety */ }
+        return undefined;
+    }, [open]);
+    const close = () => {
+        setOpen(false);
+        setTimeout(() => { setSent(false); setError(null); setKind("problem"); }, 250);
+    };
+    const send = async () => {
+        const message = text.trim();
+        if (message.length < 3 || busy)
+            return;
+        setBusy(true);
+        setError(null);
+        try {
+            await callSheet("feedback", { ...(AI_AUTH || {}), kind, message, where: FEEDBACK_WHERE[tab] || "" });
+            setText("");
+            setSent(true);
+        }
+        catch (e) {
+            setError(friendlyAuthError(e));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    const chip = (on) => ({
+        border: `1.5px solid ${on ? C.teal : C.line}`,
+        background: on ? C.paleTeal : "#fff",
+        color: on ? "#0B6E6E" : C.soft,
+        borderRadius: 999, padding: "6px 12px", fontSize: 12.5, fontWeight: 800,
+        cursor: "pointer", fontFamily: "inherit",
+    });
+    return (React.createElement(React.Fragment, null,
+        !open && (React.createElement("button", { onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, "aria-label": "Send feedback", title: "Feedback \u2014 drag to move it", style: {
+                position: "fixed", zIndex: 9998, background: GRAD, color: "#fff", border: "none",
+                borderRadius: spot ? 8 : "8px 0 0 8px", padding: "16px 9px 16px 11px",
+                cursor: drag.current ? "grabbing" : "grab", fontFamily: "inherit",
+                fontSize: 12.5, fontWeight: 800, letterSpacing: 0.4,
+                writingMode: "vertical-rl", textOrientation: "mixed",
+                touchAction: "none", userSelect: "none",
+                boxShadow: "0 4px 16px rgba(15,42,67,.22)", ...tabPos,
+            } }, "Feedback")),
+        open && (React.createElement("div", { role: "dialog", "aria-label": "Feedback", style: {
+                position: "fixed", zIndex: 9999, width: "min(330px, calc(100vw - 28px))", ...panelPos,
+                background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12,
+                boxShadow: "0 18px 48px rgba(15,42,67,.22)", overflow: "hidden",
+            }, className: "astra-orbit astra-glow" },
+            React.createElement("div", { style: { background: GRAD, color: "#fff", padding: "12px 15px", display: "flex", alignItems: "center", gap: 10 } },
+                React.createElement("span", { style: { fontSize: 14.5, fontWeight: 900, flex: 1 } }, "Tell us what you think"),
+                React.createElement("button", { onClick: close, "aria-label": "Close feedback", style: {
+                        background: "rgba(255,255,255,.18)", border: "none", color: "#fff",
+                        width: 24, height: 24, borderRadius: 6, cursor: "pointer", fontSize: 14, fontWeight: 900, lineHeight: 1,
+                    } }, "\u00D7")),
+            sent ? (React.createElement("div", { style: { padding: 20, textAlign: "center" } },
+                React.createElement("div", { style: { fontSize: 15, fontWeight: 900, color: C.navy } }, "Thank you"),
+                React.createElement("div", { style: { fontSize: 13, color: C.soft, marginTop: 6, lineHeight: 1.6 } }, "It reached the team. If it needs a reply, someone will email you."),
+                React.createElement("button", { onClick: close, style: {
+                        marginTop: 14, background: GRAD, color: "#fff", border: "none", borderRadius: 7,
+                        padding: "8px 18px", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit",
+                    } }, "Close"))) : (React.createElement("div", { style: { padding: 15 } },
+                React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, FEEDBACK_KINDS.map(([id, label]) => (React.createElement("button", { key: id, onClick: () => setKind(id), style: chip(kind === id) }, label)))),
+                React.createElement("textarea", { ref: boxRef, value: text, onChange: (e) => { setText(e.target.value.slice(0, 1000)); setError(null); }, placeholder: "What happened, or what would make this better?", rows: 4, style: {
+                        width: "100%", boxSizing: "border-box", marginTop: 11, padding: "10px 12px",
+                        fontSize: 13.5, fontFamily: "inherit", border: `1.5px solid ${C.line}`,
+                        borderRadius: 8, color: C.ink, outline: "none", resize: "vertical",
+                    } }),
+                React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10 } },
+                    React.createElement("button", { onClick: send, disabled: busy || text.trim().length < 3, style: {
+                            background: busy || text.trim().length < 3 ? "#CBD9DE" : GRAD, color: "#fff",
+                            border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 800,
+                            cursor: busy || text.trim().length < 3 ? "default" : "pointer", fontFamily: "inherit",
+                        } }, busy ? "Sending…" : "Send"),
+                    React.createElement("span", { style: { fontSize: 11.5, color: C.soft } },
+                        1000 - text.length,
+                        " left")),
+                error && React.createElement("div", { role: "alert", style: { marginTop: 9, fontSize: 12, color: "#991B1B" } }, error),
+                React.createElement("div", { style: { marginTop: 11, fontSize: 11.5, color: C.soft, lineHeight: 1.6 } }, "Your name and which tab you were on are sent with it. Never include patient details.")))))));
+}
 function AskMePanel() {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState("");
@@ -5510,7 +5756,8 @@ function App() {
             tab === "admin" && isAdmin && React.createElement(AdminPanel, { account: account }),
             tab === "ai" && isAdmin && React.createElement(AiPanel, { account: account })),
         showChangePw && account && (React.createElement(ChangePassword, { account: account, onClose: () => setShowChangePw(false), onChanged: onPasswordChanged })),
-        React.createElement(AskMeBot, null)));
+        React.createElement(AskMeBot, null),
+        React.createElement(FeedbackTab, { tab: tab })));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
 
