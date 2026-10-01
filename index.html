@@ -2939,7 +2939,7 @@ const IND = {
     status: { A: "Active: paid under the fee schedule", R: "Restricted coverage: special rules apply", T: "Paid only when no other service is billed that day", I: "Not valid for Medicare: another code is used", N: "Non-covered service", B: "Bundled: payment is included in another service", C: "Priced by the MAC", X: "Statutory exclusion: not a physician fee schedule service", E: "Excluded by regulation", J: "Anesthesia service", M: "Measurement code: not paid", D: "Deleted code", P: "Bundled or excluded", Q: "Therapy functional reporting code" },
     glob: { "000": "Minor procedure: same-day only", "010": "10-day post-op period", "090": "90-day global: 1 day pre-op plus 90 days post-op", XXX: "Global period does not apply", YYY: "MAC sets the global period", ZZZ: "Add-on code: follows the primary code's global", MMM: "Maternity global" },
     pctc: { 0: "Physician service: no 26/TC split", 1: "Diagnostic test: 26 and TC apply", 2: "Professional component only", 3: "Technical component only", 4: "Global test only", 5: "Incident-to service", 6: "Lab physician interpretation", 7: "Physical therapy service", 8: "Physician interpretation code", 9: "Does not apply" },
-    mult: { 0: "No multiple-procedure reduction", 1: "Standard reduction", 2: "Standard 100/50 reduction (modifier 51)", 3: "Endoscopy base reduction", 4: "Diagnostic imaging reduction", 5: "Therapy reduction", 6: "Diagnostic cardiovascular reduction", 7: "Diagnostic ophthalmology reduction", 9: "Does not apply" },
+    mult: { 0: "No multiple-procedure reduction", 1: "Pre-1996 payment rules apply", 2: "Standard 100/50 reduction (modifier 51)", 3: "Endoscopy base reduction", 4: "Diagnostic imaging reduction", 5: "Therapy reduction", 6: "Diagnostic cardiovascular reduction", 7: "Diagnostic ophthalmology reduction", 9: "Does not apply" },
     bilat: { 0: "Bilateral paid at 100% of one side (modifier 50 adds nothing)", 1: "Bilateral allowed: modifier 50 pays 150%", 2: "Already bilateral: 150% does not apply", 3: "Bilateral paid at 200% (each side in full)", 9: "Does not apply" },
     asst: { 0: "Assistant paid only with documented necessity", 1: "Assistant never paid", 2: "Assistant paid", 9: "Does not apply" },
     co: { 0: "Co-surgeons not paid", 1: "Co-surgeons paid with documentation", 2: "Co-surgeons paid", 9: "Does not apply" },
@@ -3201,7 +3201,10 @@ function MueBlock({ mue, label }) {
             ".")));
 }
 /* A57637, L33996, 220.4, NCD 220.4 — a CMS document, not a procedure code. */
-const DOC_RE = /^(A\d{4,6}|L\d{4,6}|(NCD)?\d{2,3}\.\d{1,2})$/;
+/* 5 or 6 digits after the letter. HCPCS Level II is a letter plus exactly
+   four digits, so A4554 and L3908 stay procedure codes. NCD numbers can
+   carry a second decimal part, such as 220.6.17. */
+const DOC_RE = /^(A\d{5,6}|L\d{5,6}|(NCD)?\d{1,3}(\.\d{1,2}){1,2})$/;
 const looksLikeDoc = (s) => DOC_RE.test(String(s || "").trim().toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9.]/g, ""));
 function DocBadge({ type }) {
     const tone = type === "NCD" ? { bg: "#EAF3FB", fg: "#1D4E7A", bd: "#C7DDF0" } : type === "LCD" ? { bg: "#F3EEFB", fg: "#5B3A91", bd: "#DDD0F2" } : { bg: "#E8F6F6", fg: "#0B6E6E", bd: "#BFE5E5" };
