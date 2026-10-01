@@ -3415,9 +3415,12 @@ function CmsDataCard({ account }) {
     useEffect(() => {
         if (!st || !st.building)
             return undefined;
-        const t = setTimeout(() => call("status"), 15000);
+        // Without schedule permission the build runs from this tab, one chunk per call.
+        const inline = st.building.inline;
+        const t = setTimeout(() => { if (!busy)
+            call(inline ? "step" : "status"); }, inline ? 1500 : 15000);
         return () => clearTimeout(t);
-    }, [st]);
+    }, [st, busy]);
     const Btn = ({ op, label, tone }) => (React.createElement("button", { onClick: () => call(op, label), disabled: !!busy, style: {
             background: tone === "primary" ? GRAD : "#fff", color: tone === "primary" ? "#fff" : C.navy,
             border: tone === "primary" ? "none" : `1.5px solid ${C.line}`, borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 800, cursor: busy ? "wait" : "pointer",
@@ -3432,7 +3435,7 @@ function CmsDataCard({ account }) {
             ["Coverage article index", st.indexCount ? `${st.indexCount.toLocaleString()} articles` : "Not built", st.indexed ? `Refreshed ${fmtWhen(st.indexed)}` : ""],
             ["Fee schedule file", st.fee || "Not loaded", st.feeAt ? `Fetched ${fmtWhen(st.feeAt)}` : ""],
             ["MUE tables", st.mue || "Not loaded", st.mueAt ? `Fetched ${fmtWhen(st.mueAt)}` : ""],
-            ["Automatic refresh", st.triggers ? "Installed" : "Not installed", st.triggers ? `Since ${fmtWhen(st.triggers)}` : "Weekly articles, weekly file check"],
+            ["Automatic refresh", st.triggers ? "Installed" : st.triggersAllowed === false ? "Needs permission" : "Not installed", st.triggers ? `Since ${fmtWhen(st.triggers)}` : st.triggersAllowed === false ? "Run authorizeCms in the Apps Script editor once" : "Weekly articles, weekly file check"],
         ].map(([k, v, sub]) => (React.createElement("div", { key: k, style: { border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", background: C.bg } },
             React.createElement("div", { style: { fontSize: 11.5, color: C.soft, fontWeight: 700 } }, k),
             React.createElement("div", { style: { fontSize: 14, fontWeight: 900, color: C.navy, marginTop: 2 } }, v),
@@ -3446,7 +3449,8 @@ function CmsDataCard({ account }) {
             st.building.pending,
             " to go",
             st.building.error ? ` · ${st.building.error}` : "",
-            ". Updates every 15 seconds.")),
+            ".",
+            st.building.inline ? " Running from this tab because the script can't schedule itself yet: keep this tab open until it finishes, or run authorizeCms in the Apps Script editor and it will carry on by itself." : " Updates every 15 seconds.")),
         run && !st.building && (React.createElement("div", { style: { marginTop: 10, fontSize: 12.5, color: C.soft } },
             "Last run ",
             fmtWhen(run.at),
