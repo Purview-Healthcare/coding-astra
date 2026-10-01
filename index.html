@@ -3481,6 +3481,11 @@ function CmsCoveragePanel({ code, account, onClose }) {
         signedIn && loading && (React.createElement("div", { style: { marginTop: 12 } },
             React.createElement(LiveSearching, { what: `coverage articles, ICD-10 lists, fee schedule and unit limits for ${code}` }))),
         error && (React.createElement("div", { style: { marginTop: 12, padding: 12, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B" } }, error)),
+        data && data.explain && (React.createElement("div", { style: { marginTop: 12, padding: "12px 14px", borderRadius: 8, lineHeight: 1.6,
+                background: data.explain.tone === "warn" ? C.warnBg : C.paleTeal,
+                border: `1px solid ${data.explain.tone === "warn" ? "#FCD9A8" : "#BFE5E5"}` } },
+            React.createElement("div", { style: { fontSize: 11.5, fontWeight: 900, letterSpacing: 0.4, color: data.explain.tone === "warn" ? C.warn : "#0B6E6E", marginBottom: 5 } }, "WHY THERE IS NO COVERAGE POLICY FOR THIS CODE"),
+            React.createElement("div", { style: { fontSize: 13.5, color: C.ink } }, data.explain.line))),
         data && (React.createElement(React.Fragment, null,
             React.createElement(PulledFrom, { items: [
                     { url: "https://www.cms.gov/medicare-coverage-database/search.aspx", label: "Medicare Coverage Database (Billing & Coding Articles, LCDs, NCDs)", note: "read live through CMS's Coverage API; ICD-10 lists are fetched at the moment you search" },
