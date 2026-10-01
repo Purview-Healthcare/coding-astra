@@ -3200,6 +3200,124 @@ function MueBlock({ mue, label }) {
             label,
             ".")));
 }
+/* A57637, L33996, 220.4, NCD 220.4 — a CMS document, not a procedure code. */
+const DOC_RE = /^(A\d{4,6}|L\d{4,6}|(NCD)?\d{2,3}\.\d{1,2})$/;
+const looksLikeDoc = (s) => DOC_RE.test(String(s || "").trim().toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9.]/g, ""));
+function DocBadge({ type }) {
+    const tone = type === "NCD" ? { bg: "#EAF3FB", fg: "#1D4E7A", bd: "#C7DDF0" } : type === "LCD" ? { bg: "#F3EEFB", fg: "#5B3A91", bd: "#DDD0F2" } : { bg: "#E8F6F6", fg: "#0B6E6E", bd: "#BFE5E5" };
+    return React.createElement("span", { style: { fontSize: 10.5, fontWeight: 900, letterSpacing: 0.4, color: tone.fg, background: tone.bg, border: `1px solid ${tone.bd}`, borderRadius: 4, padding: "2px 7px" } }, type);
+}
+function DocRow({ d }) {
+    return (React.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", background: "#fff", display: "flex", gap: 12, alignItems: "flex-start" } },
+        React.createElement("div", { style: { minWidth: 86 } },
+            React.createElement("div", { style: { fontWeight: 900, fontSize: 14, color: C.navy, fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, d.displayId),
+            React.createElement("div", { style: { marginTop: 3 } },
+                React.createElement(DocBadge, { type: d.type }))),
+        React.createElement("div", { style: { flex: 1 } },
+            React.createElement("a", { href: d.url, target: "_blank", rel: "noreferrer", style: { fontSize: 13.5, fontWeight: 800, color: C.ink, textDecoration: "none" } },
+                d.title,
+                " \u2197"),
+            React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 3, lineHeight: 1.5 } },
+                d.contractor,
+                d.effective ? ` · Effective ${d.effective}` : "",
+                d.updatedOn ? ` · Updated ${d.updatedOn}` : "",
+                d.states && d.states !== "All states" ? ` · ${d.states.split("; ").length} states` : d.states === "All states" ? " · All states" : "",
+                d.codes ? ` · ${d.codes} codes` : "",
+                d.retired ? ` · RETIRED ${d.retired}` : ""))));
+}
+/* Look up an LCD, NCD or article by its number, or find documents by title. */
+function CmsDocPanel({ query, account, onClose }) {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const signedIn = !!account;
+    useEffect(() => {
+        let live = true;
+        if (!signedIn || !query || query.trim().length < 3)
+            return undefined;
+        setLoading(true);
+        setError(null);
+        setData(null);
+        callSheet("cmsDoc", { query, ...(AI_AUTH || {}) })
+            .then((d) => { if (live)
+            setData(d); })
+            .catch((e) => { if (live)
+            setError(friendlyAiError(e)); })
+            .finally(() => { if (live)
+            setLoading(false); });
+        return () => { live = false; };
+    }, [query, signedIn]);
+    useEffect(() => { if (data)
+        logUsage("CMS documents", "search", query, data.kind === "list" ? (data.matches || []).length : data.kind === "none" ? 0 : 1); }, [data]);
+    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.cyan}`, borderRadius: 10, padding: 16 } },
+        React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
+            React.createElement(LiveBadge, { text: "CMS DOCUMENT" }),
+            React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, query.trim().toUpperCase()),
+            onClose && React.createElement("button", { onClick: onClose, "aria-label": "Close", style: { marginLeft: "auto", background: "transparent", border: "none", color: C.soft, fontSize: 18, cursor: "pointer" } }, "\u00D7")),
+        !signedIn && React.createElement("div", { style: { marginTop: 12, padding: 12, background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 13, color: C.ink } },
+            React.createElement("b", null, "Sign in first."),
+            " Document lookups run through your account."),
+        loading && React.createElement("div", { style: { marginTop: 12 } },
+            React.createElement(LiveSearching, { what: "the CMS coverage documents", seconds: 20 })),
+        error && React.createElement("div", { style: { marginTop: 12, padding: 12, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B" } }, error),
+        data && data.kind === "article" && data.article && (React.createElement("div", { style: { marginTop: 12 } },
+            React.createElement(ArticleCard, { a: data.article, code: "" }))),
+        data && data.kind === "article" && !data.article && data.meta && (React.createElement("div", { style: { marginTop: 12, fontSize: 13, color: C.ink } },
+            "CMS didn't return the detail for ",
+            data.meta.displayId,
+            " just now. ",
+            React.createElement("a", { href: data.meta.url, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 800 } }, "Open it on CMS \u2197"))),
+        data && data.kind === "lcd" && data.lcd && (React.createElement("div", { style: { marginTop: 12 } },
+            React.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 8, padding: "12px 14px" } },
+                React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" } },
+                    React.createElement(DocBadge, { type: "LCD" }),
+                    React.createElement("span", { style: { fontSize: 15, fontWeight: 900, color: C.navy } }, data.lcd.displayId),
+                    React.createElement("span", { style: { fontSize: 14, fontWeight: 800, color: C.ink } }, data.lcd.title)),
+                React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 4, lineHeight: 1.55 } },
+                    data.lcd.contractor,
+                    data.lcd.effective ? ` · Effective ${data.lcd.effective}` : "",
+                    data.lcd.updatedOn ? ` · Updated ${data.lcd.updatedOn}` : "",
+                    data.lcd.retired ? ` · RETIRED ${data.lcd.retired}` : "",
+                    data.lcd.states ? ` · ${data.lcd.states.split("; ").length} states` : ""),
+                React.createElement("div", { style: { fontSize: 12.5, color: C.ink, marginTop: 8, lineHeight: 1.55 } }, "An LCD sets the coverage policy. The CPT, HCPCS and ICD-10 codes live in its Billing & Coding article, listed below.")),
+            data.lcd.articles && data.lcd.articles.length > 0 && (React.createElement(Section, { label: "Billing & Coding articles for this LCD" },
+                React.createElement("div", { style: { display: "grid", gap: 6 } }, data.lcd.articles.map((a) => React.createElement(DocRow, { key: a.displayId, d: { ...a, type: "Article" } }))))),
+            React.createElement("div", { style: { marginTop: 12 } },
+                React.createElement(SotLink, { href: data.lcd.url, label: `${data.lcd.displayId} on the Medicare Coverage Database` })))),
+        data && data.kind === "ncd" && data.ncd && (React.createElement("div", { style: { marginTop: 12 } },
+            React.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 8, padding: "12px 14px" } },
+                React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" } },
+                    React.createElement(DocBadge, { type: "NCD" }),
+                    React.createElement("span", { style: { fontSize: 15, fontWeight: 900, color: C.navy } }, data.ncd.displayId),
+                    React.createElement("span", { style: { fontSize: 14, fontWeight: 800, color: C.ink } }, data.ncd.title)),
+                React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 4 } },
+                    "National policy, every state and every MAC",
+                    data.ncd.chapter ? ` · Chapter ${data.ncd.chapter}` : "",
+                    data.ncd.lab ? " · Laboratory NCD" : "",
+                    data.ncd.updated ? ` · Updated ${data.ncd.updated}` : ""),
+                React.createElement("div", { style: { fontSize: 12.5, color: C.ink, marginTop: 8, lineHeight: 1.55 } }, "NCDs state what is covered nationally. They carry no billing codes: those arrive through CR transmittals and the MACs' Billing & Coding articles.")),
+            React.createElement("div", { style: { marginTop: 12 } },
+                React.createElement(SotLink, { href: data.ncd.url, label: `NCD ${data.ncd.displayId} on the Medicare Coverage Database` })))),
+        data && data.kind === "list" && (React.createElement("div", { style: { marginTop: 12 } },
+            React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginBottom: 8 } },
+                data.total,
+                " document",
+                data.total === 1 ? "" : "s",
+                " with all of those words in the title",
+                data.total > data.matches.length ? `, showing ${data.matches.length}` : "",
+                "."),
+            React.createElement("div", { style: { display: "grid", gap: 6 } }, data.matches.map((d, i) => React.createElement(DocRow, { key: d.type + d.displayId + i, d: d }))))),
+        data && (data.kind === "none" || (data.kind === "list" && !data.matches.length)) && (React.createElement("div", { style: { marginTop: 12, fontSize: 13, color: C.ink, lineHeight: 1.55 } },
+            "Nothing in the index matches that. Document numbers look like ",
+            React.createElement("b", null, "A57637"),
+            ", ",
+            React.createElement("b", null, "L33996"),
+            " or ",
+            React.createElement("b", null, "220.4"),
+            "; otherwise type words from the title, such as \"vitamin d\".")),
+        data && ["article", "lcd", "ncd"].indexOf(data.kind) === -1 && data.kind === "" && (React.createElement("div", { style: { marginTop: 12, fontSize: 13, color: C.soft } }, "Type at least three characters.")),
+        React.createElement(PulledFrom, { items: [{ url: "https://www.cms.gov/medicare-coverage-database/search.aspx", label: "Medicare Coverage Database", note: "articles, LCDs and NCDs indexed from CMS, refreshed weekly" }] })));
+}
 /* The answer to "can I bill these two together", shown inline under a
    code search and on the Bundling tab. */
 function PairVerdict({ data, code }) {
@@ -6503,7 +6621,7 @@ function App() {
                     ". Rules that apply to every specialty are shown as well. Contact Purview Healthcare to change this.")),
                 React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 } },
                     React.createElement(SpecialtyPicker, { value: spec, onPick: setSpec, allowed: allowed }),
-                    React.createElement("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: "Search CPT/HCPCS code, modifier, POS, diagnosis or keyword\u2026", style: { ...inputStyle, flex: 1, minWidth: 220 } })),
+                    React.createElement("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: "CPT/HCPCS code, or a CMS document number like A57637, L33996 or 220.4\u2026", style: { ...inputStyle, flex: 1, minWidth: 220 } })),
                 spec && !specHasCurated && (React.createElement("div", { style: { background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 10, padding: "14px 16px", marginBottom: 14 } },
                     React.createElement("div", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.55 } },
                         "No specialty-specific rules written yet for ",
@@ -6513,9 +6631,11 @@ function App() {
                             spec[1]),
                         ". The cross-specialty rules (E/M, telehealth, global surgery) still apply and are shown below."),
                     React.createElement(AiLookupBlock, { topic: `Most commonly billed CPT and HCPCS codes for Medicare specialty ${spec[0]} (${spec[1]}), with their POS codes, required modifiers, covered ICD-10 diagnoses, frequency limits, and the CMS references`, label: `Look up ${spec[1]} coding rules on cms.gov`, hint: "Or open the CMS sources tab to check manually" }))),
-                looksLikeCode(query) && (React.createElement("div", { style: { marginBottom: 12 } },
+                looksLikeDoc(query) && (React.createElement("div", { style: { marginBottom: 12 } },
+                    React.createElement(CmsDocPanel, { query: query, account: account }))),
+                !looksLikeDoc(query) && looksLikeCode(query) && (React.createElement("div", { style: { marginBottom: 12 } },
                     React.createElement(CmsCoveragePanel, { code: cleanCode(query), account: account }))),
-                React.createElement("div", { id: "astra-rules", style: { display: "grid", gap: 12, scrollMarginTop: 16 } }, filtered.length === 0 ? (React.createElement("div", { style: { background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 10, padding: 22 } },
+                React.createElement("div", { id: "astra-rules", style: { display: "grid", gap: 12, scrollMarginTop: 16 } }, filtered.length === 0 && looksLikeDoc(query) ? null : filtered.length === 0 ? (React.createElement("div", { style: { background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 10, padding: 22 } },
                     React.createElement("div", { style: { fontSize: 14, fontWeight: 800, color: C.navy } }, query.trim() ? `No curated rule for "${query.trim()}" yet` : "Nothing in the curated library matches"),
                     React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, looksLikeCode(query) ? "The live CMS policy for this code is shown above. For a plain-English rule, ask Astra below." : "Look it up live against current CMS guidance below, or see the CMS sources tab for where a rule like this is published."),
                     query.trim() && (React.createElement(AiLookupBlock, { topic: `${query.trim()} — current Medicare rules: which POS codes apply, which modifiers, covered ICD-10 diagnoses, unit and frequency limits, and the latest transmittal/CR or MLN Matters reference`, label: `Look up "${query.trim()}" on cms.gov`, hint: "Searches CMS and returns the rule with its citation" })))) : filtered.map((r, i) => React.createElement(RuleCard, { key: i, r: r, account: account }))))),
