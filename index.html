@@ -3381,6 +3381,102 @@ function CmsDocPanel({ query, account, onClose }) {
         React.createElement(PulledFrom, { items: [{ url: "https://www.cms.gov/medicare-coverage-database/search.aspx", label: "Medicare Coverage Database", note: "Billing & Coding articles, LCDs and NCDs indexed from CMS, refreshed weekly" }] })));
 }
 /* Article, LCD and NCD numbers, or words from a title. */
+function CodeDxPolicy({ account }) {
+    const [code, setCode] = useState("");
+    const [dx, setDx] = useState("");
+    const [stateName, setStateName] = useState(() => loadCmsState());
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const status = useCmsStatus();
+    const states = status.data && status.data.states;
+    const c = cleanCode(code), d = cleanCode(dx);
+    const ready = !!account && CODE_RE.test(c);
+    const run = async () => {
+        if (!ready)
+            return;
+        setLoading(true);
+        setError(null);
+        setData(null);
+        try {
+            setData(await callSheet("cmsLookup", { code: c, dx: d, state: stateName, ...(AI_AUTH || {}) }));
+        }
+        catch (e) {
+            setError(friendlyAiError(e));
+        }
+        finally {
+            setLoading(false);
+        }
+    };
+    const pickState = (v) => { saveCmsState(v); setStateName(v); };
+    const inputStyle = { padding: "10px 12px", fontSize: 14, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none", background: "#fff" };
+    const per = data && data.verdict ? data.verdict.per : [];
+    const covering = per.filter((p) => p.status === "covered");
+    const refusing = per.filter((p) => p.status === "noncovered" || p.status === "notlisted");
+    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 18 } },
+        React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
+            React.createElement(LiveBadge, { text: "CODE + DIAGNOSIS" }),
+            React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "Which policy covers this code and diagnosis")),
+        React.createElement("div", { style: { fontSize: 13, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, "The usual research step on a denial: enter the billed code and the diagnosis, and get the article number that decides it."),
+        React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12, alignItems: "center" } },
+            React.createElement("input", { value: code, onChange: (e) => setCode(e.target.value), onKeyDown: (e) => { if (e.key === "Enter")
+                    run(); }, placeholder: "CPT or HCPCS, e.g. 92134", style: { ...inputStyle, flex: "1 1 180px", maxWidth: 230 } }),
+            React.createElement("span", { style: { fontSize: 12.5, color: C.soft, fontWeight: 700 } }, "with"),
+            React.createElement("input", { value: dx, onChange: (e) => setDx(e.target.value), onKeyDown: (e) => { if (e.key === "Enter")
+                    run(); }, placeholder: "ICD-10, e.g. H35.3131", style: { ...inputStyle, flex: "1 1 180px", maxWidth: 230 } }),
+            React.createElement(StatePicker, { value: stateName, onChange: pickState, states: states }),
+            React.createElement("button", { onClick: run, disabled: !ready || loading, style: {
+                    background: ready ? GRAD : "#CBD9DE", color: "#fff", border: "none", borderRadius: 7,
+                    padding: "10px 18px", fontSize: 14, fontWeight: 800, cursor: ready ? "pointer" : "default",
+                } }, loading ? "Reading CMS…" : "Find the policy")),
+        !account && React.createElement("div", { style: { marginTop: 12, padding: 12, background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 13, color: C.ink } },
+            React.createElement("b", null, "Sign in first."),
+            " Live reads from cms.gov go through your account."),
+        loading && React.createElement("div", { style: { marginTop: 12 } },
+            React.createElement(LiveSearching, { what: `the policies for ${c}${d ? " and " + d : ""}`, seconds: 20 })),
+        error && React.createElement("div", { style: { marginTop: 12, padding: 12, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B" } }, error),
+        data && (React.createElement("div", { style: { marginTop: 14 } },
+            data.explain && (React.createElement("div", { style: { padding: "12px 14px", borderRadius: 8, lineHeight: 1.6, marginBottom: 10,
+                    background: data.explain.tone === "warn" ? C.warnBg : C.paleTeal,
+                    border: `1px solid ${data.explain.tone === "warn" ? "#FCD9A8" : "#BFE5E5"}` } },
+                React.createElement("div", { style: { fontSize: 13.5, color: C.ink } }, data.explain.line))),
+            d && covering.length > 0 && (React.createElement("div", { style: { padding: 14, background: "#EFFBF4", border: "1px solid #BFE9D2", borderRadius: 8 } },
+                React.createElement("div", { style: { fontSize: 11.5, fontWeight: 900, letterSpacing: 0.4, color: "#166534" } },
+                    "COVERED UNDER ",
+                    covering.length === 1 ? "THIS POLICY" : "THESE POLICIES"),
+                React.createElement("div", { style: { display: "grid", gap: 6, marginTop: 8 } }, covering.map((p) => (React.createElement("div", { key: p.displayId, style: { fontSize: 13, color: C.ink, lineHeight: 1.55 } },
+                    React.createElement("a", { href: p.url, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 900, textDecoration: "none", fontFamily: "ui-monospace, Menlo, Consolas, monospace" } },
+                        p.displayId,
+                        " \u2197"),
+                    " ",
+                    p.title,
+                    React.createElement("div", { style: { fontSize: 12, color: C.soft } },
+                        p.contractor,
+                        p.group ? ` · Group ${p.group}` : "",
+                        p.desc ? ` · ${p.desc}` : ""))))))),
+            d && covering.length === 0 && refusing.length > 0 && (React.createElement("div", { style: { padding: 14, background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8 } },
+                React.createElement("div", { style: { fontSize: 11.5, fontWeight: 900, letterSpacing: 0.4, color: C.warn } }, "NO POLICY COVERS THIS COMBINATION"),
+                React.createElement("div", { style: { fontSize: 13, color: C.ink, marginTop: 6, lineHeight: 1.55 } },
+                    d,
+                    " is not on the covered list of the ",
+                    refusing.length === 1 ? "policy" : "policies",
+                    " that restrict ",
+                    c,
+                    ". Expect a medical-necessity denial unless the documentation supports an exception."),
+                React.createElement("div", { style: { display: "grid", gap: 4, marginTop: 8 } }, refusing.map((p) => (React.createElement("div", { key: p.displayId, style: { fontSize: 12.5, color: C.ink } },
+                    React.createElement("a", { href: p.url, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 800, textDecoration: "none" } }, p.displayId),
+                    " ",
+                    p.title,
+                    " ",
+                    React.createElement("span", { style: { color: C.soft } },
+                        "\u00B7 ",
+                        p.contractor))))))),
+            (data.articles || []).length > 0 && (React.createElement(Section, { label: `Policies listing ${c}${stateName ? " for " + stateName : ""}` },
+                React.createElement("div", { style: { display: "grid", gap: 6 } },
+                    data.articles.map((a) => React.createElement(DocRow, { key: a.id, d: { type: "Article", displayId: a.displayId, title: a.title, contractor: a.contractor, states: (a.states || []).join("; "), effective: a.effective, updatedOn: a.updatedOn, url: a.url, retired: a.retired } })),
+                    (data.lcds || []).map((l) => React.createElement(DocRow, { key: l.displayId, d: { ...l, type: "LCD", states: (l.states || []).join("; ") } }))))),
+            React.createElement(PulledFrom, { items: [{ url: "https://www.cms.gov/medicare-coverage-database/search.aspx", label: "Medicare Coverage Database", note: "read live through CMS's Coverage API at the moment you search" }] })))));
+}
 function DocumentsTab({ account, onGoToCode }) {
     const [input, setInput] = useState("");
     const [query, setQuery] = useState("");
@@ -3411,6 +3507,7 @@ function DocumentsTab({ account, onGoToCode }) {
                     React.createElement(DocBadge, { type: t }),
                     React.createElement("button", { onClick: () => { setInput(eg); setQuery(eg); }, style: { background: "transparent", border: "none", color: C.teal, fontWeight: 800, fontSize: 12.5, cursor: "pointer", padding: 0, fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, eg)),
                 React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 5, lineHeight: 1.5 } }, note)))))),
+        React.createElement(CodeDxPolicy, { account: account }),
         codeNote && React.createElement(NotAPolicy, { note: codeNote, onGoToCode: onGoToCode }),
         query && !codeNote && React.createElement(CmsDocPanel, { key: query, query: query, account: account, onClose: () => { setQuery(""); setInput(""); } })));
 }
@@ -5874,7 +5971,8 @@ How to answer:
 - Say when you are not sure rather than guessing. A wrong coding answer costs the client money.
 - Do not reproduce long passages from CMS or AMA material. Explain in your own words; CPT descriptors are AMA copyrighted.
 - Keep it tight. These are working billers, not students. No preamble, no restating the question. Aim for under 150 words unless the question genuinely needs more.
-- Never ask for or discuss patient identifiers.`;
+- Never ask for or discuss patient identifiers.
+- End every answer with a line starting "Source:" naming where the rule comes from. Give the full cms.gov address when you know it is correct; otherwise name the document precisely (for example "Pub. 100-04, Chapter 12, Section 30.6.1", "LCD L33996", "MLN Matters MM12427"), which the app turns into a link. Never invent an address or a number.`;
 const CHAT_STARTERS = [
     "When can I bill modifier 25 with a preventive visit?",
     "Why would 95810 deny when the patient has an OSA diagnosis?",
@@ -6206,9 +6304,40 @@ function AskMeBot() {
    This builds React elements directly rather than injecting HTML,
    so model output can never introduce markup of its own.
    ============================================================ */
+/* Astra names its sources in words. Turn the ones that have a stable CMS
+   address into links so nobody has to go hunting for them. */
+const IOM_PUBS = {
+    "100-01": "https://www.cms.gov/regulations-and-guidance/guidance/manuals/paginated/iom-manuals-items/cms018912",
+    "100-02": "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms-items/cms012673",
+    "100-03": "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms-items/cms014961",
+    "100-04": "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms-items/cms018912",
+    "100-08": "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms-items/cms019033",
+};
+function citationUrl(tok) {
+    const t = tok.toUpperCase();
+    let m = t.match(/^A(\d{5,6})$/);
+    if (m)
+        return "https://www.cms.gov/medicare-coverage-database/view/article.aspx?articleid=" + m[1];
+    m = t.match(/^L(\d{5,6})$/);
+    if (m)
+        return "https://www.cms.gov/medicare-coverage-database/view/lcd.aspx?lcdid=" + m[1];
+    m = t.match(/^NCD\s*(\d{1,3}(?:\.\d{1,2}){1,2})$/);
+    if (m)
+        return "https://www.cms.gov/medicare-coverage-database/search.aspx?keyword=" + encodeURIComponent(m[1]);
+    m = t.match(/^(?:PUB\.?\s*)?(100-0[1-9])/);
+    if (m)
+        return IOM_PUBS[m[1]] || "https://www.cms.gov/regulations-and-guidance/guidance/manuals/internet-only-manuals-ioms";
+    m = t.match(/^MM(\d{4,6})$/);
+    if (m)
+        return "https://www.cms.gov/search/cms?keys=MM" + m[1];
+    m = t.match(/^(?:CR\s*)(\d{4,6})$/);
+    if (m)
+        return "https://www.cms.gov/medicare/regulations-guidance/transmittals?keys=" + m[1];
+    return null;
+}
 function inlineNodes(text, k) {
     const out = [];
-    const re = /(\*\*[^*\n]+\*\*|`[^`\n]+`|https?:\/\/[^\s)<>"]+)/g;
+    const re = /(\*\*[^*\n]+\*\*|`[^`\n]+`|https?:\/\/[^\s)<>"]+|\bPub\.?\s*100-0[1-9]\b|\bNCD\s*\d{1,3}(?:\.\d{1,2}){1,2}\b|\b[AL]\d{5,6}\b|\bMM\d{4,6}\b|\bCR\s*\d{4,6}\b)/g;
     let last = 0, m, i = 0;
     while ((m = re.exec(text)) !== null) {
         if (m.index > last)
@@ -6220,8 +6349,16 @@ function inlineNodes(text, k) {
         else if (tok.startsWith("`")) {
             out.push(React.createElement("code", { key: k + "c" + i, style: { background: C.bg, padding: "1px 5px", borderRadius: 4, fontSize: "0.92em" } }, tok.slice(1, -1)));
         }
-        else {
+        else if (/^https?:/i.test(tok)) {
             out.push(React.createElement("a", { key: k + "a" + i, href: tok, target: "_blank", rel: "noreferrer", style: { color: C.teal, wordBreak: "break-all" } }, tok));
+        }
+        else {
+            const href = citationUrl(tok);
+            out.push(href
+                ? React.createElement("a", { key: k + "r" + i, href: href, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 700 } },
+                    tok,
+                    " \u2197")
+                : tok);
         }
         last = m.index + tok.length;
         i++;
