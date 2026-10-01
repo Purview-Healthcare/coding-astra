@@ -3270,7 +3270,11 @@ function CmsCoveragePanel({ code, account, onClose }) {
     };
     useEffect(() => { setData(null); setPairData(null); setPairError(null); if (signedIn)
         run(asked); }, [code, stateName, signedIn]);
-    useEffect(() => { logUsage("Live CMS", "code", code, null); }, [code]);
+    useEffect(() => {
+        if (!data || data.code !== code)
+            return;
+        logUsage("Live CMS", "search", code, (data.articles || []).length);
+    }, [data, code]);
     const checkPair = async () => {
         const other = cleanCode(pairCode);
         if (!CODE_RE.test(other) || !signedIn)
@@ -6391,7 +6395,9 @@ function App() {
             return hay.includes(q);
         });
     }, [spec, query, limited, allowed]);
-    useSearchLog("Coding rules", query, filtered.length, !!account);
+    // A code search is answered by the live CMS panel, which logs its own
+    // result. Only non-code searches measure the curated library.
+    useSearchLog("Coding rules", looksLikeCode(query) ? "" : query, filtered.length, !!account);
     useEffect(() => {
         if (spec)
             logUsage("Coding rules", "specialty", spec[1] || spec[0], null);
