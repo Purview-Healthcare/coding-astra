@@ -327,6 +327,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     return;
   }
   try {
+"use strict";
 const { useState, useMemo, useRef, useEffect } = React;
 /* ============================================================
    PURVIEW — Coding Astra
@@ -365,6 +366,8 @@ const FX_CSS = `
 @keyframes astraWave { 0%, 60%, 100% { transform: rotate(0deg); } 10%, 30% { transform: rotate(16deg); } 20% { transform: rotate(-8deg); } 40% { transform: rotate(-4deg); } 50% { transform: rotate(10deg); } }
 @keyframes astraPop { 0% { transform: scale(0); } 70% { transform: scale(1.2); } 100% { transform: scale(1); } }
 @keyframes astraPulse { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(1.75); opacity: 0; } }
+@keyframes astraBlink { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
+.astra-live-dot { animation: astraBlink 1s ease-in-out infinite; }
 
 .astra-line, .astra-line-light { position: relative; }
 .astra-line::after, .astra-line-light::after {
@@ -459,6 +462,7 @@ const FX_CSS = `
 .astra-card.astra-orbit:hover::before { padding: 2.5px; }
 
 @media (prefers-reduced-motion: reduce) {
+  .astra-live-dot { animation: none; }
   .astra-line::after, .astra-line-light::after, .astra-star, .astra-sparkle, .astra-rise,
   .astra-name::after, .astra-wave, .astra-pop, .astra-tab-bar, .astra-pulse::after,
   .astra-card.astra-line:hover::after,
@@ -2610,7 +2614,7 @@ const Section = ({ label, children }) => (React.createElement("div", { style: { 
     children));
 function VerifyPanel({ result, loading, error }) {
     if (loading)
-        return (React.createElement("div", { style: { padding: 14, background: "#F0FAFB", border: `1px dashed ${C.cyan}`, borderRadius: 8, fontSize: 13.5, color: C.ink } }, "Checking current CMS guidance \u2014 this searches cms.gov and takes 20\u201340 seconds\u2026"));
+        return React.createElement(LiveSearching, { what: "current CMS guidance" });
     if (error)
         return (React.createElement("div", { style: { padding: 14, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13.5, color: "#991B1B" } },
             "Couldn't complete the check: ",
@@ -2770,7 +2774,7 @@ function RuleModPos({ r }) {
                 g.why)))))),
         React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 8, lineHeight: 1.55 } }, "Each code also carries its own payment indicators at CMS \u2014 bilateral, assistant at surgery, global period and the rest. Check those in the fee schedule for the date of service.")));
 }
-function RuleCard({ r }) {
+function RuleCard({ r, account }) {
     const [open, setOpen] = useState(false);
     return (React.createElement("div", { className: "astra-card astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, overflow: "hidden" } },
         React.createElement("div", { onClick: () => setOpen(!open), style: { padding: "16px 18px", cursor: "pointer", display: "flex", gap: 14, alignItems: "flex-start" } },
@@ -2822,6 +2826,7 @@ function RuleCard({ r }) {
                 r.verifyHint && React.createElement("div", { style: { marginTop: 8, fontSize: 12.5, color: C.warn } },
                     "\u26A0 ",
                     r.verifyHint)),
+            React.createElement(LiveCmsToggle, { code: r.code, account: account }),
             React.createElement(AiLookupBlock, { topic: `${r.code} — ${r.title}: current Medicare POS, modifier, ICD-10 coverage, unit/frequency limits, and the latest transmittal/CR or MLN Matters reference`, label: "Check this code against current CMS guidance", hint: "Pulls today's rules + latest CR / MLN numbers" })))));
 }
 /* ---------------- Searchable specialty combobox ---------------- */
@@ -2880,7 +2885,7 @@ function CmsSources() {
     return (React.createElement("div", { style: { display: "grid", gap: 14 } },
         React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 18 } },
             React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "Look up any CPT or HCPCS code at CMS"),
-            React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, "The curated library below covers common codes. For anything else, these are the official CMS sources \u2014 enter a code to copy it, then open the tool that answers your question."),
+            React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, "Searching a code on the Coding rules tab now reads the Billing & Coding articles, ICD-10 lists, fee schedule indicators and unit limits straight from CMS. These are the official CMS tools behind that, for anything you want to confirm by hand: enter a code to copy it, then open the tool that answers your question."),
             React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" } },
                 React.createElement("input", { value: code, onChange: (e) => setCode(e.target.value), placeholder: "Enter a CPT or HCPCS code, e.g. 44970 or 99490", style: { flex: 1, minWidth: 220, padding: "10px 12px", fontSize: 14, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } }),
                 React.createElement("button", { onClick: copy, disabled: !c, style: {
@@ -2910,6 +2915,717 @@ function CmsSources() {
                 React.createElement("div", { style: { paddingBottom: 4 } },
                     React.createElement("div", { style: { fontWeight: 800, color: C.ink, fontSize: 14 } }, s.t),
                     React.createElement("div", { style: { fontSize: 13.5, color: C.soft, lineHeight: 1.6, marginTop: 3 } }, s.d)))))))));
+}
+/* ============================================================
+   LIVE CMS COVERAGE
+   ------------------------------------------------------------
+   Read straight from CMS through the accounts sheet's script:
+   the Billing & Coding Articles that list a code (with their
+   covered and non-covered ICD-10 lists), the fee schedule payment
+   indicators and the NCCI unit limits. Nothing here is typed in
+   by hand, and the script tells the page when CMS changed
+   something. Every block ends with the CMS document it came from.
+   ============================================================ */
+const CODE_RE = /^[A-Z0-9]{5}$/;
+const cleanCode = (s) => normDash(s).trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+const looksLikeCode = (s) => CODE_RE.test(cleanCode(s));
+const STATE_KEY = "astraState";
+const loadCmsState = () => safeStore.get(STATE_KEY) || "";
+const saveCmsState = (v) => { if (v)
+    safeStore.set(STATE_KEY, v);
+else
+    safeStore.remove(STATE_KEY); };
+const IND = {
+    status: { A: "Active: paid under the fee schedule", R: "Restricted coverage: special rules apply", T: "Paid only when no other service is billed that day", I: "Not valid for Medicare: another code is used", N: "Non-covered service", B: "Bundled: payment is included in another service", C: "Priced by the MAC", X: "Statutory exclusion: not a physician fee schedule service", E: "Excluded by regulation", J: "Anesthesia service", M: "Measurement code: not paid", D: "Deleted code", P: "Bundled or excluded", Q: "Therapy functional reporting code" },
+    glob: { "000": "Minor procedure: same-day only", "010": "10-day post-op period", "090": "90-day global: 1 day pre-op plus 90 days post-op", XXX: "Global period does not apply", YYY: "MAC sets the global period", ZZZ: "Add-on code: follows the primary code's global", MMM: "Maternity global" },
+    pctc: { 0: "Physician service: no 26/TC split", 1: "Diagnostic test: 26 and TC apply", 2: "Professional component only", 3: "Technical component only", 4: "Global test only", 5: "Incident-to service", 6: "Lab physician interpretation", 7: "Physical therapy service", 8: "Physician interpretation code", 9: "Does not apply" },
+    mult: { 0: "No multiple-procedure reduction", 1: "Standard reduction", 2: "Standard 100/50 reduction (modifier 51)", 3: "Endoscopy base reduction", 4: "Diagnostic imaging reduction", 5: "Therapy reduction", 6: "Diagnostic cardiovascular reduction", 7: "Diagnostic ophthalmology reduction", 9: "Does not apply" },
+    bilat: { 0: "Bilateral paid at 100% of one side (modifier 50 adds nothing)", 1: "Bilateral allowed: modifier 50 pays 150%", 2: "Already bilateral: 150% does not apply", 3: "Bilateral paid at 200% (each side in full)", 9: "Does not apply" },
+    asst: { 0: "Assistant paid only with documented necessity", 1: "Assistant never paid", 2: "Assistant paid", 9: "Does not apply" },
+    co: { 0: "Co-surgeons not paid", 1: "Co-surgeons paid with documentation", 2: "Co-surgeons paid", 9: "Does not apply" },
+    team: { 0: "Team surgery not paid", 1: "Team surgery paid with documentation", 2: "Team surgery paid", 9: "Does not apply" },
+};
+const ind = (kind, v) => IND[kind][String(v)] || "";
+const fmtWhen = (iso) => {
+    if (!iso)
+        return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime()))
+        return String(iso);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+};
+/* One shared read of the sheet's CMS status for the whole page. */
+let CMS_STATUS_CACHE = null;
+let CMS_STATUS_PROMISE = null;
+function fetchCmsStatus(force) {
+    if (CMS_STATUS_CACHE && !force)
+        return Promise.resolve(CMS_STATUS_CACHE);
+    if (CMS_STATUS_PROMISE && !force)
+        return CMS_STATUS_PROMISE;
+    CMS_STATUS_PROMISE = callSheet("cmsStatus", {}).then((d) => { CMS_STATUS_CACHE = d; CMS_STATUS_PROMISE = null; return d; })
+        .catch((e) => { CMS_STATUS_PROMISE = null; throw e; });
+    return CMS_STATUS_PROMISE;
+}
+function useCmsStatus() {
+    const [data, setData] = useState(CMS_STATUS_CACHE);
+    const [error, setError] = useState(null);
+    const reload = (force) => fetchCmsStatus(force).then(setData).catch((e) => setError(e.message || "couldn't reach the service"));
+    useEffect(() => { reload(false); }, []);
+    return { data, error, reload };
+}
+function StatePicker({ value, onChange, states }) {
+    const names = states ? Object.keys(states).map((k) => states[k]).sort() : [];
+    return (React.createElement("select", { "aria-label": "State for local coverage", value: value, onChange: (e) => onChange(e.target.value), style: { padding: "8px 10px", fontSize: 13, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, background: "#fff", outline: "none", maxWidth: 260 } },
+        React.createElement("option", { value: "" }, "All states"),
+        names.map((n) => React.createElement("option", { key: n, value: n }, n))));
+}
+function LiveBadge({ text }) {
+    return (React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 900, letterSpacing: 0.5, color: "#0B6E6E", background: "#E8F6F6", border: "1px solid #BFE5E5", borderRadius: 5, padding: "3px 8px" } },
+        React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: C.green, boxShadow: `0 0 0 3px rgba(43,182,115,0.25)` } }),
+        text || "LIVE FROM CMS"));
+}
+/* Shown while a live request is on its way to cms.gov. */
+function LiveSearching({ what, seconds = 40 }) {
+    return (React.createElement("div", { role: "status", style: { display: "flex", gap: 12, alignItems: "center", padding: "12px 14px", background: "#FFF5F5", border: "1px solid #FECACA", borderRadius: 8 } },
+        React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, fontWeight: 900, letterSpacing: 0.6, color: "#B91C1C", whiteSpace: "nowrap" } },
+            React.createElement("span", { className: "astra-live-dot", style: { width: 10, height: 10, borderRadius: "50%", background: "#DC2626", boxShadow: "0 0 0 3px rgba(220,38,38,0.2)" } }),
+            "LIVE SEARCH"),
+        React.createElement("span", { style: { fontSize: 13, color: C.ink, lineHeight: 1.5 } },
+            "Reading ",
+            what,
+            " from cms.gov right now. This is live, not a saved copy, so it can take up to ",
+            seconds,
+            " seconds.")));
+}
+/* The strip under every live result: where the information came from. */
+function PulledFrom({ items }) {
+    return (React.createElement("div", { style: { marginTop: 10, padding: "10px 12px", background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8 } },
+        React.createElement("div", { style: { fontSize: 11.5, fontWeight: 900, letterSpacing: 0.4, color: C.stamp } }, "SOURCE OF TRUTH: THIS INFORMATION IS PULLED FROM"),
+        React.createElement("div", { style: { display: "grid", gap: 4, marginTop: 6 } }, items.map((it, i) => (React.createElement("div", { key: i, style: { fontSize: 12.5, color: C.ink, lineHeight: 1.5 } },
+            React.createElement("a", { href: it.url, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 800, textDecoration: "none" } },
+                it.label,
+                " \u2197"),
+            it.note ? React.createElement("span", { style: { color: C.soft } },
+                " \u00B7 ",
+                it.note) : null))))));
+}
+function SotLink({ href, label }) {
+    return (React.createElement("a", { href: href, target: "_blank", rel: "noreferrer", style: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 800, color: C.teal, textDecoration: "none", padding: "6px 10px", border: `1.5px solid ${C.line}`, borderLeft: `4px solid ${C.teal}`, borderRadius: 6, background: "#fff" } },
+        React.createElement("span", { style: { fontSize: 10, fontWeight: 900, color: "#fff", background: C.navy, padding: "1px 6px", borderRadius: 3, letterSpacing: 0.4 } }, "SOURCE"),
+        label,
+        " \u2197"));
+}
+/* A long ICD-10 list: first few rows, a filter box, and "show all". */
+function DxList({ codes, tone }) {
+    const [all, setAll] = useState(false);
+    const [f, setF] = useState("");
+    const q = cleanCode(f);
+    const rows = q ? codes.filter((c) => cleanCode(c[0]).includes(q) || String(c[1] || "").toUpperCase().includes(f.trim().toUpperCase())) : codes;
+    const shown = all || q ? rows : rows.slice(0, 24);
+    const color = tone === "non" ? "#991B1B" : C.ink;
+    return (React.createElement("div", null,
+        codes.length > 24 && (React.createElement("input", { value: f, onChange: (e) => setF(e.target.value), placeholder: `Filter these ${codes.length} codes (e.g. H35 or macular)`, style: { width: "100%", boxSizing: "border-box", padding: "7px 10px", fontSize: 12.5, border: `1.5px solid ${C.line}`, borderRadius: 6, color: C.ink, outline: "none", marginBottom: 8 } })),
+        React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "3px 14px" } }, shown.map((c, i) => (React.createElement("div", { key: c[0] + i, style: { fontSize: 12.5, color, lineHeight: 1.45 } },
+            React.createElement("b", { style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, c[0]),
+            c[2] ? React.createElement("span", { title: "Needs a second, supporting diagnosis", style: { color: C.warn, fontWeight: 900 } }, "*") : null,
+            c[1] ? React.createElement("span", { style: { color: C.soft } },
+                " ",
+                c[1]) : null)))),
+        !all && !q && rows.length > 24 && (React.createElement("button", { onClick: () => setAll(true), style: { marginTop: 8, background: "transparent", border: "none", color: C.teal, fontWeight: 800, fontSize: 12.5, cursor: "pointer", padding: 0 } },
+            "Show all ",
+            rows.length,
+            " codes")),
+        q && rows.length === 0 && React.createElement("div", { style: { fontSize: 12.5, color: C.soft } },
+            "No code in this list matches \"",
+            f.trim(),
+            "\".")));
+}
+function Para({ text, max = 420 }) {
+    const [open, setOpen] = useState(false);
+    if (!text)
+        return null;
+    const long = text.length > max;
+    const shown = open || !long ? text : text.slice(0, max).replace(/\s+\S*$/, "") + "…";
+    return (React.createElement("div", { style: { fontSize: 13, color: C.ink, lineHeight: 1.6, whiteSpace: "pre-wrap", background: C.bg, borderRadius: 6, padding: "8px 10px" } },
+        shown,
+        long && React.createElement("button", { onClick: () => setOpen(!open), style: { marginLeft: 6, background: "transparent", border: "none", color: C.teal, fontWeight: 800, fontSize: 12.5, cursor: "pointer", padding: 0 } }, open ? "Less" : "Read more")));
+}
+function ArticleCard({ a, code }) {
+    const [open, setOpen] = useState(true);
+    const covered = (a.covered || []).filter((g) => g.codes.length);
+    const non = (a.noncovered || []).filter((g) => g.codes.length);
+    const dxCount = covered.reduce((n, g) => n + g.codes.length, 0);
+    return (React.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 10, background: "#fff", overflow: "hidden" } },
+        React.createElement("div", { onClick: () => setOpen(!open), style: { padding: "12px 14px", cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start" } },
+            React.createElement("div", { style: { minWidth: 76, fontWeight: 900, fontSize: 15, color: C.navy, fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, a.displayId),
+            React.createElement("div", { style: { flex: 1 } },
+                React.createElement("div", { style: { fontSize: 14, fontWeight: 800, color: C.ink } }, a.title),
+                React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 3, lineHeight: 1.5 } },
+                    a.contractor,
+                    a.effective ? ` · Effective ${a.effective}` : "",
+                    a.updatedOn ? ` · Updated by CMS ${a.updatedOn}` : "",
+                    a.states && a.states.length ? ` · ${a.states.length} state${a.states.length === 1 ? "" : "s"}` : ""),
+                React.createElement("div", { style: { marginTop: 6 } },
+                    dxCount > 0 ? React.createElement(Chip, { tone: "pos" },
+                        dxCount,
+                        " covered ICD-10") : React.createElement(Chip, { tone: "mod" }, "No ICD-10 restriction listed"),
+                    non.length > 0 && React.createElement(Chip, { tone: "mod" }, "Non-covered list"),
+                    (a.lcds || []).length > 0 && React.createElement(Chip, { tone: "mod" },
+                        "LCD ",
+                        a.lcds.map((l) => "L" + l.id).join(", ")),
+                    a.partial && React.createElement(Chip, { tone: "mod" }, "Some sections didn't load"))),
+            React.createElement("div", { style: { fontSize: 20, color: C.soft, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" } }, "\u203A")),
+        open && (React.createElement("div", { style: { padding: "0 14px 14px", borderTop: `1px solid ${C.line}` } },
+            a.failed && React.createElement("div", { style: { marginTop: 10, fontSize: 12.5, color: "#991B1B" } }, "CMS didn't answer for this article just now. Open it on CMS below."),
+            a.codeNote && (React.createElement(Section, { label: `What the article says about ${code}` },
+                React.createElement(Para, { text: a.codeNote }))),
+            covered.length > 0 && (React.createElement(Section, { label: "Billable diagnoses (ICD-10-CM codes that support medical necessity)" }, covered.map((g) => (React.createElement("div", { key: g.n, style: { marginBottom: 12 } },
+                covered.length > 1 && React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: C.navy, marginBottom: 4 } },
+                    "Group ",
+                    g.n,
+                    " \u00B7 ",
+                    g.codes.length,
+                    " codes"),
+                g.paragraph && React.createElement("div", { style: { marginBottom: 6 } },
+                    React.createElement(Para, { text: g.paragraph, max: 300 })),
+                g.asterisk && React.createElement("div", { style: { fontSize: 12, color: C.warn, marginBottom: 6 } },
+                    "* ",
+                    g.asterisk),
+                React.createElement(DxList, { codes: g.codes })))))),
+            covered.length === 0 && !a.failed && (React.createElement(Section, { label: "Billable diagnoses" },
+                React.createElement("div", { style: { fontSize: 13, color: C.ink, lineHeight: 1.55 } },
+                    "This article lists ",
+                    code,
+                    " but does not restrict it to a diagnosis list. Medical necessity still has to be documented; check the related LCD and any NCD below."))),
+            non.length > 0 && (React.createElement(Section, { label: "Diagnoses listed as NOT covered" }, non.map((g) => (React.createElement("div", { key: g.n, style: { marginBottom: 10 } },
+                g.paragraph && React.createElement("div", { style: { marginBottom: 6 } },
+                    React.createElement(Para, { text: g.paragraph, max: 300 })),
+                React.createElement(DxList, { codes: g.codes, tone: "non" })))))),
+            React.createElement("div", { style: { marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" } },
+                React.createElement(SotLink, { href: a.url, label: `${a.displayId} on the Medicare Coverage Database` }),
+                (a.lcds || []).map((l) => React.createElement(SotLink, { key: l.id, href: l.url, label: `LCD L${l.id}${l.ver ? " v" + l.ver : ""}` })),
+                (a.ncds || []).map((n) => React.createElement(SotLink, { key: n.id, href: n.url, label: `NCD ${n.id}${n.title ? ": " + n.title : ""}` })))))));
+}
+const dotDx = (raw) => {
+    const c = cleanCode(raw);
+    return c.length > 3 ? c.slice(0, 3) + "." + c.slice(3) : c;
+};
+function DxVerdict({ v }) {
+    if (!v)
+        return null;
+    const tones = {
+        covered: { bg: "#EFFBF4", bd: "#BFE9D2", color: "#166534", label: "COVERED DIAGNOSIS" },
+        noncovered: { bg: "#FEF2F2", bd: "#FECACA", color: "#991B1B", label: "LISTED AS NOT COVERED" },
+        notlisted: { bg: C.warnBg, bd: "#FCD9A8", color: C.warn, label: "NOT ON THE COVERED LIST" },
+        norule: { bg: "#F5F7F9", bd: C.line, color: C.soft, label: "NO DIAGNOSIS RESTRICTION FOUND" },
+    };
+    const t = tones[v.overall] || tones.norule;
+    const words = {
+        covered: "supports medical necessity under at least one current policy.",
+        noncovered: "is named as non-covered in a current policy. Expect a denial unless another policy applies.",
+        notlisted: "is not on the covered list of the policies that restrict this code. Expect a medical-necessity denial (CO-50) unless documentation supports an exception.",
+        norule: "is not restricted by any current Billing & Coding article for this code and state. Medical necessity still has to be documented.",
+    };
+    const pw = { covered: "Covered", noncovered: "Not covered", notlisted: "Not listed", norule: "No list" };
+    return (React.createElement("div", { style: { padding: 14, background: t.bg, border: `1px solid ${t.bd}`, borderRadius: 8 } },
+        React.createElement("div", { style: { fontSize: 11.5, fontWeight: 900, letterSpacing: 0.4, color: t.color } }, t.label),
+        React.createElement("div", { style: { fontSize: 13.5, color: C.ink, marginTop: 6, lineHeight: 1.55 } },
+            React.createElement("b", { style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, dotDx(v.dx)),
+            " ",
+            words[v.overall] || words.norule),
+        v.per.length > 0 && (React.createElement("div", { style: { display: "grid", gap: 6, marginTop: 10 } }, v.per.map((p) => (React.createElement("div", { key: p.displayId, style: { fontSize: 12.5, color: C.ink, lineHeight: 1.5, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" } },
+            React.createElement("span", { style: { fontWeight: 900, color: p.status === "covered" ? "#166534" : p.status === "noncovered" ? "#991B1B" : p.status === "notlisted" ? C.warn : C.soft, minWidth: 84 } }, pw[p.status]),
+            React.createElement("a", { href: p.url, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 800, textDecoration: "none" } }, p.displayId),
+            React.createElement("span", null, p.title),
+            React.createElement("span", { style: { color: C.soft } },
+                p.contractor,
+                p.group ? ` · Group ${p.group}` : "",
+                p.desc ? ` · ${p.desc}` : ""),
+            p.asterisk && React.createElement("span", { style: { color: C.warn } },
+                "* ",
+                p.asterisk))))))));
+}
+function FeeBlock({ rows, label }) {
+    if (!rows || !rows.length)
+        return null;
+    const Row = ({ k, v, meaning }) => (React.createElement("div", { style: { display: "flex", gap: 10, fontSize: 12.5, lineHeight: 1.5 } },
+        React.createElement("span", { style: { minWidth: 150, color: C.soft } }, k),
+        React.createElement("span", { style: { fontWeight: 800, color: C.navy, minWidth: 34, fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, v || "–"),
+        React.createElement("span", { style: { color: C.ink } }, meaning)));
+    return (React.createElement("div", { style: { display: "grid", gap: 10 } },
+        rows.map((r, i) => (React.createElement("div", { key: i, style: { border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", background: "#fff" } },
+            React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", marginBottom: 6 } },
+                React.createElement("span", { style: { fontWeight: 900, color: C.navy, fontSize: 14 } }, r.mod ? `With modifier ${r.mod}` : (rows.length > 1 ? "Global service (no modifier)" : "Payment policy")),
+                React.createElement("span", { style: { fontSize: 12.5, color: C.soft } }, r.desc)),
+            React.createElement("div", { style: { display: "grid", gap: 3 } },
+                (i === 0 || r.status !== rows[0].status) && React.createElement(Row, { k: "Status", v: r.status, meaning: ind("status", r.status) }),
+                i === 0 && (React.createElement(React.Fragment, null,
+                    React.createElement(Row, { k: "Global period", v: r.glob, meaning: ind("glob", r.glob) }),
+                    React.createElement(Row, { k: "PC/TC", v: r.pctc, meaning: ind("pctc", r.pctc) }),
+                    React.createElement(Row, { k: "Bilateral", v: r.bilat, meaning: ind("bilat", r.bilat) }),
+                    React.createElement(Row, { k: "Multiple procedure", v: r.mult, meaning: ind("mult", r.mult) }),
+                    React.createElement(Row, { k: "Assistant at surgery", v: r.asst, meaning: ind("asst", r.asst) }),
+                    React.createElement(Row, { k: "Co-surgeons", v: r.co, meaning: ind("co", r.co) }),
+                    React.createElement(Row, { k: "Team surgery", v: r.team, meaning: ind("team", r.team) }))),
+                React.createElement(Row, { k: "Work RVU", v: `${r.work}`, meaning: `PE non-facility ${r.peNf}, PE facility ${r.peF}, MP ${r.mp}. Total: non-facility ${r.totalNf}, facility ${r.totalF}${i === 0 && r.cf ? ` · conversion factor ${r.cf}` : ""}` }))))),
+        React.createElement("div", { style: { fontSize: 11.5, color: C.soft } },
+            label,
+            ". National RVUs before the geographic adjustment; the MAC's allowed amount applies the GPCI for the locality.")));
+}
+function MueBlock({ mue, label }) {
+    const kinds = [["prac", "Practitioner"], ["fac", "Facility outpatient"], ["dme", "DME supplier"]];
+    const any = kinds.some(([k]) => mue && mue[k]);
+    if (!any)
+        return null;
+    const mai = { 1: "Claim-line edit: units over the limit on one line deny; a second line with a modifier can be considered.", 2: "Absolute limit per date of service: an appeal will not overturn it.", 3: "Per-day limit based on clinical judgment: appealable with documentation." };
+    return (React.createElement("div", null,
+        React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } }, kinds.map(([k, name]) => mue[k] ? (React.createElement("div", { key: k, style: { border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", background: "#fff", flex: "1 1 220px" } },
+            React.createElement("div", { style: { fontSize: 12, color: C.soft } }, name),
+            React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.navy, lineHeight: 1.2 } },
+                mue[k].units,
+                " ",
+                React.createElement("span", { style: { fontSize: 12, color: C.soft, fontWeight: 700 } },
+                    "unit",
+                    mue[k].units === "1" ? "" : "s",
+                    " per day")),
+            React.createElement("div", { style: { fontSize: 12, color: C.ink, marginTop: 4, lineHeight: 1.5 } },
+                React.createElement("b", null,
+                    "MAI ",
+                    mue[k].mai),
+                mai[String(mue[k].mai).charAt(0)] ? ` ${mai[String(mue[k].mai).charAt(0)]}` : ""),
+            mue[k].rationale && React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 2 } },
+                "Rationale: ",
+                mue[k].rationale))) : null)),
+        React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 6 } },
+            label,
+            ".")));
+}
+function CmsCoveragePanel({ code, account, onClose }) {
+    const [stateName, setStateName] = useState(() => loadCmsState());
+    const [dx, setDx] = useState("");
+    const [asked, setAsked] = useState("");
+    const [loading, setLoading] = useState(false);
+    const [data, setData] = useState(null);
+    const [error, setError] = useState(null);
+    const status = useCmsStatus();
+    const states = status.data && status.data.states;
+    const signedIn = !!account;
+    const run = async (dxValue) => {
+        if (!signedIn)
+            return;
+        setLoading(true);
+        setError(null);
+        try {
+            const d = await callSheet("cmsLookup", { code, state: stateName, dx: dxValue || "", ...(AI_AUTH || {}) });
+            setData(d);
+            setAsked(dxValue || "");
+        }
+        catch (e) {
+            setError(friendlyAiError(e));
+        }
+        finally {
+            setLoading(false);
+        }
+    };
+    useEffect(() => { setData(null); if (signedIn)
+        run(asked); }, [code, stateName, signedIn]);
+    useEffect(() => { logUsage("Live CMS", "code", code, null); }, [code]);
+    const pickState = (v) => { saveCmsState(v); setStateName(v); };
+    const st = (data && data.status) || (status.data && status.data.status) || null;
+    const indexReady = st ? st.indexCount > 0 : null;
+    const inputStyle = { padding: "8px 10px", fontSize: 13, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none", background: "#fff" };
+    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 16 } },
+        React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
+            React.createElement(LiveBadge, null),
+            React.createElement("div", { style: { fontSize: 17, fontWeight: 900, color: C.navy } },
+                "CMS policy for ",
+                React.createElement("span", { style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, code)),
+            React.createElement("div", { style: { marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
+                React.createElement(StatePicker, { value: stateName, onChange: pickState, states: states }),
+                onClose && React.createElement("button", { onClick: onClose, "aria-label": "Close", style: { background: "transparent", border: "none", color: C.soft, fontSize: 18, cursor: "pointer" } }, "\u00D7"))),
+        st && (React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 6, lineHeight: 1.5 } },
+            st.indexCount ? `${st.indexCount.toLocaleString()} CMS articles indexed${st.indexed ? ", refreshed " + fmtWhen(st.indexed) : ""}${st.latestChange ? ", latest CMS change " + st.latestChange : ""}` : "CMS article index not built yet",
+            st.fee ? ` · Fee schedule: ${st.fee}` : "",
+            st.mue ? ` · ${st.mue}` : "")),
+        !signedIn && (React.createElement("div", { style: { marginTop: 12, padding: 12, background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } },
+            React.createElement("b", null, "Sign in first."),
+            " Live reads from cms.gov go through your account so the sheet can apply daily limits. This works on the published site after sign-in; it does not run in a file preview.")),
+        signedIn && loading && (React.createElement("div", { style: { marginTop: 12 } },
+            React.createElement(LiveSearching, { what: `coverage articles, ICD-10 lists, fee schedule and unit limits for ${code}` }))),
+        error && (React.createElement("div", { style: { marginTop: 12, padding: 12, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B" } }, error)),
+        data && (React.createElement(React.Fragment, null,
+            React.createElement(PulledFrom, { items: [
+                    { url: "https://www.cms.gov/medicare-coverage-database/search.aspx", label: "Medicare Coverage Database (Billing & Coding Articles, LCDs, NCDs)", note: "read live through CMS's Coverage API; ICD-10 lists are fetched at the moment you search" },
+                    { url: "https://www.cms.gov/medicare/payment/fee-schedules/physician/pfs-relative-value-files", label: "Physician Fee Schedule relative value file", note: st && st.fee ? st.fee : "quarterly CMS file" },
+                    { url: "https://www.cms.gov/medicare/coding-billing/national-correct-coding-initiative-ncci-edits/medicare-ncci-medically-unlikely-edits-mues", label: "NCCI Medically Unlikely Edits tables", note: st && st.mue ? st.mue : "quarterly CMS file" },
+                ] }),
+            React.createElement(Section, { label: "Check a diagnosis against these policies" },
+                React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
+                    React.createElement("input", { value: dx, onChange: (e) => setDx(e.target.value), onKeyDown: (e) => { if (e.key === "Enter")
+                            run(dx); }, placeholder: "ICD-10-CM code, e.g. H35.32", style: { ...inputStyle, flex: "1 1 200px", maxWidth: 280 } }),
+                    React.createElement("button", { onClick: () => run(dx), disabled: loading || !cleanCode(dx), style: { background: cleanCode(dx) ? GRAD : "#CBD9DE", color: "#fff", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 800, cursor: cleanCode(dx) ? "pointer" : "default" } }, loading ? "Checking…" : "Check diagnosis"),
+                    asked && !loading && React.createElement("button", { onClick: () => { setDx(""); run(""); }, style: { background: "transparent", border: "none", color: C.teal, fontWeight: 800, fontSize: 12.5, cursor: "pointer" } }, "Clear")),
+                data.verdict && React.createElement("div", { style: { marginTop: 10 } },
+                    React.createElement(DxVerdict, { v: data.verdict }))),
+            React.createElement(Section, { label: `Billing & Coding articles that list ${code}${stateName ? " for " + stateName : ""}` },
+                indexReady === false && (React.createElement("div", { style: { padding: 12, background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } }, "The CMS article index hasn't been built yet, so no local coverage can be shown. An administrator starts it from Admin \u2192 CMS data.")),
+                indexReady && data.articles.length === 0 && (React.createElement("div", { style: { padding: 12, background: C.bg, border: `1px dashed ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } },
+                    "No current Billing & Coding article lists ",
+                    code,
+                    stateName ? ` for ${stateName}` : "",
+                    ".",
+                    data.otherStates > 0 && React.createElement("span", null,
+                        " ",
+                        data.otherStates,
+                        " article",
+                        data.otherStates === 1 ? "" : "s",
+                        " list it for other states: switch to All states to see them."),
+                    data.otherStates === 0 && React.createElement("span", null, " That usually means the MACs don't restrict this code to a diagnosis list. Check the fee schedule status below and any NCD on the CMS sources tab."))),
+                React.createElement("div", { style: { display: "grid", gap: 10 } }, data.articles.map((a) => React.createElement(ArticleCard, { key: a.id, a: a, code: code }))),
+                data.moreCurrent > 0 && React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 8 } },
+                    data.moreCurrent,
+                    " more article",
+                    data.moreCurrent === 1 ? "" : "s",
+                    " list this code. Choose a state to narrow the list."),
+                data.retired.length > 0 && (React.createElement("div", { style: { marginTop: 10, fontSize: 12.5, color: C.soft, lineHeight: 1.6 } },
+                    React.createElement("b", null, "Retired articles"),
+                    " (useful for older dates of service):",
+                    " ",
+                    data.retired.map((r, i) => React.createElement("span", { key: r.displayId },
+                        i > 0 ? ", " : "",
+                        React.createElement("a", { href: r.url, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 700, textDecoration: "none" } }, r.displayId),
+                        " ",
+                        r.title,
+                        " (",
+                        r.contractor,
+                        ", retired ",
+                        r.retired,
+                        ")"))))),
+            React.createElement(Section, { label: "Physician Fee Schedule payment indicators" },
+                data.fee.length ? React.createElement(FeeBlock, { rows: data.fee, label: `From the CMS relative value file ${st && st.fee ? st.fee : ""}` })
+                    : React.createElement("div", { style: { fontSize: 13, color: C.ink } }, st && st.fee ? `${code} is not in the current fee schedule file (${st.fee}). It may be a non-physician-fee-schedule code, a deleted code or a typo.` : "Fee schedule file not loaded yet. An administrator fetches it from Admin → CMS data."),
+                React.createElement("div", { style: { marginTop: 8 } },
+                    React.createElement(SotLink, { href: "https://www.cms.gov/medicare/physician-fee-schedule/search", label: "Physician Fee Schedule Look-Up Tool" }))),
+            React.createElement(Section, { label: "Units per day (NCCI Medically Unlikely Edits)" },
+                Object.keys(data.mue || {}).length ? React.createElement(MueBlock, { mue: data.mue, label: `From ${st && st.mue ? st.mue : "the CMS MUE tables"}` })
+                    : React.createElement("div", { style: { fontSize: 13, color: C.ink } }, st && st.mue ? `No MUE value is published for ${code} (${st.mue}).` : "MUE tables not loaded yet. An administrator fetches them from Admin → CMS data."),
+                React.createElement("div", { style: { marginTop: 8 } },
+                    React.createElement(SotLink, { href: "https://www.cms.gov/medicare/coding-billing/national-correct-coding-initiative-ncci-edits/medicare-ncci-medically-unlikely-edits-mues", label: "NCCI MUE tables on cms.gov" }))),
+            data.partial && React.createElement("div", { style: { marginTop: 10, fontSize: 12, color: C.warn } }, "CMS didn't answer every request just now. Search again in a moment for the full picture.")))));
+}
+/* Inside a curated rule card: open the live data for that code. */
+function LiveCmsToggle({ code, account }) {
+    const [open, setOpen] = useState(false);
+    if (!CODE_RE.test(code))
+        return null;
+    return (React.createElement("div", { style: { marginTop: 14 } }, !open ? (React.createElement("button", { onClick: (e) => { e.stopPropagation(); setOpen(true); }, style: { background: "#fff", color: C.navy, border: `1.5px solid ${C.green}`, borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 800, cursor: "pointer", display: "inline-flex", gap: 8, alignItems: "center" } },
+        React.createElement("span", { style: { width: 7, height: 7, borderRadius: "50%", background: C.green } }),
+        "Live CMS policy for ",
+        code,
+        ": billable Dx, fee schedule, units")) : (React.createElement("div", { onClick: (e) => e.stopPropagation() },
+        React.createElement(CmsCoveragePanel, { code: code, account: account, onClose: () => setOpen(false) })))));
+}
+/* CMS sources tab: what CMS changed lately, and how fresh each feed is. */
+function CmsUpdatesCard() {
+    const { data, error, reload } = useCmsStatus();
+    const [f, setF] = useState("");
+    const st = data && data.status;
+    const changes = (data && data.changes) || [];
+    const q = f.trim().toUpperCase();
+    const rows = q ? changes.filter((c) => [c.displayId, c.title, c.contractor, c.added, c.removed, c.states].join(" ").toUpperCase().includes(q)) : changes;
+    const tone = { New: "#166534", Updated: C.warn, Retired: "#991B1B", Removed: "#991B1B", "Fee schedule": C.navy, MUE: C.navy };
+    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 18 } },
+        React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
+            React.createElement(LiveBadge, { text: "CMS UPDATES" }),
+            React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "What CMS changed"),
+            React.createElement("button", { onClick: () => reload(true), style: { marginLeft: "auto", background: "transparent", border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.teal, fontWeight: 800, fontSize: 12.5, cursor: "pointer", padding: "6px 10px" } }, "Refresh")),
+        error && React.createElement("div", { style: { fontSize: 12.5, color: "#991B1B", marginTop: 8 } }, error),
+        st && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginTop: 12 } }, [
+            ["Coverage articles", st.indexCount ? `${st.indexCount.toLocaleString()} indexed` : "Not built yet", st.indexed ? `Refreshed ${fmtWhen(st.indexed)}${st.latestChange ? " · latest CMS change " + st.latestChange : ""}` : "Weekly once installed"],
+            ["Fee schedule", st.fee || "Not loaded yet", st.feeAt ? `Fetched ${fmtWhen(st.feeAt)}` : "Quarterly from cms.gov"],
+            ["NCCI MUE", st.mue || "Not loaded yet", st.mueAt ? `Fetched ${fmtWhen(st.mueAt)}` : "Quarterly from cms.gov"],
+        ].map(([k, v, sub]) => (React.createElement("div", { key: k, style: { border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", background: C.bg } },
+            React.createElement("div", { style: { fontSize: 11.5, color: C.soft, fontWeight: 700 } }, k),
+            React.createElement("div", { style: { fontSize: 14, fontWeight: 900, color: C.navy, marginTop: 2 } }, v),
+            React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 2 } }, sub)))))),
+        st && st.building && (React.createElement("div", { style: { marginTop: 10, fontSize: 12.5, color: C.ink, padding: "8px 10px", background: C.paleTeal, borderRadius: 6 } },
+            "Index refresh in progress: ",
+            st.building.done,
+            " of ",
+            st.building.done + st.building.pending,
+            " articles read",
+            st.building.error ? ` (${st.building.error})` : "",
+            ".")),
+        React.createElement("div", { style: { marginTop: 14, fontSize: 12.5, color: C.soft, lineHeight: 1.55 } },
+            "Every weekly check compares CMS's article list with the last one and logs anything new, updated, retired or removed, with the CPT/HCPCS codes that changed. Last ",
+            CMS_CHANGES_DAYS_UI,
+            " days:"),
+        React.createElement("input", { value: f, onChange: (e) => setF(e.target.value), placeholder: "Filter by code, article, MAC or state\u2026", style: { width: "100%", boxSizing: "border-box", marginTop: 8, padding: "8px 10px", fontSize: 13, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } }),
+        React.createElement("div", { style: { display: "grid", gap: 6, marginTop: 10 } },
+            rows.length === 0 && React.createElement("div", { style: { fontSize: 13, color: C.soft } }, changes.length ? "Nothing matches that filter." : "No changes logged yet. The first full index build doesn't log; the weekly checks after it do."),
+            rows.slice(0, 80).map((c, i) => (React.createElement("div", { key: i, style: { border: `1px solid ${C.line}`, borderRadius: 8, padding: "9px 12px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline", fontSize: 12.5, lineHeight: 1.5 } },
+                React.createElement("span", { style: { color: C.soft, minWidth: 92 } }, fmtWhen(c.at)),
+                React.createElement("span", { style: { fontWeight: 900, color: tone[c.change] || C.ink, minWidth: 64 } }, c.change),
+                c.url ? React.createElement("a", { href: c.url, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 800, textDecoration: "none" } }, c.displayId) : React.createElement("b", null, c.displayId),
+                React.createElement("span", { style: { color: C.ink } }, c.title),
+                React.createElement("span", { style: { color: C.soft } }, c.contractor),
+                c.added && React.createElement("span", { style: { color: "#166534" } },
+                    "+ ",
+                    c.added),
+                c.removed && React.createElement("span", { style: { color: "#991B1B" } },
+                    "\u2212 ",
+                    c.removed)))))));
+}
+const CMS_CHANGES_DAYS_UI = 90;
+/* Admin: run the connections, build the index, fetch files, install the schedule. */
+function CmsDataCard({ account }) {
+    const creds = { email: account.email, password: account.pw };
+    const [st, setSt] = useState(null);
+    const [log, setLog] = useState(null);
+    const [busy, setBusy] = useState("");
+    const [error, setError] = useState(null);
+    const call = async (op, label) => {
+        setBusy(op);
+        setError(null);
+        if (op !== "status")
+            setLog(null);
+        try {
+            const r = await callSheet("cmsAdmin", { ...creds, op });
+            if (r.status)
+                setSt(r.status);
+            if (r.log)
+                setLog(r.log);
+            if (r.started)
+                setLog([`${label} started in the background. This card updates itself; the first full build takes 10-30 minutes.`]);
+            if (r.already)
+                setLog(["A build is already running."]);
+            if (op === "triggers")
+                setLog(["Automatic refresh installed: coverage articles every Friday 3am, fee schedule and MUE files checked weekly."]);
+            CMS_STATUS_CACHE = null;
+        }
+        catch (e) {
+            setError(friendlyAuthError(e));
+        }
+        finally {
+            setBusy("");
+        }
+    };
+    useEffect(() => { call("status"); }, []);
+    useEffect(() => {
+        if (!st || !st.building)
+            return undefined;
+        const t = setTimeout(() => call("status"), 15000);
+        return () => clearTimeout(t);
+    }, [st]);
+    const Btn = ({ op, label, tone }) => (React.createElement("button", { onClick: () => call(op, label), disabled: !!busy, style: {
+            background: tone === "primary" ? GRAD : "#fff", color: tone === "primary" ? "#fff" : C.navy,
+            border: tone === "primary" ? "none" : `1.5px solid ${C.line}`, borderRadius: 7, padding: "8px 14px", fontSize: 13, fontWeight: 800, cursor: busy ? "wait" : "pointer",
+        } }, busy === op ? "Working…" : label));
+    const run = st && st.lastRun;
+    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 16 } },
+        React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
+            React.createElement(LiveBadge, { text: "CMS DATA" }),
+            React.createElement("div", { style: { fontSize: 15, fontWeight: 900, color: C.navy } }, "Live CMS feeds")),
+        React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 4, lineHeight: 1.6 } }, "First time: run the self-check, then build the index, then fetch the files, then install the automatic refresh. After that everything updates itself and the CMS sources tab shows what changed."),
+        st && (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10, marginTop: 12 } }, [
+            ["Coverage article index", st.indexCount ? `${st.indexCount.toLocaleString()} articles` : "Not built", st.indexed ? `Refreshed ${fmtWhen(st.indexed)}` : ""],
+            ["Fee schedule file", st.fee || "Not loaded", st.feeAt ? `Fetched ${fmtWhen(st.feeAt)}` : ""],
+            ["MUE tables", st.mue || "Not loaded", st.mueAt ? `Fetched ${fmtWhen(st.mueAt)}` : ""],
+            ["Automatic refresh", st.triggers ? "Installed" : "Not installed", st.triggers ? `Since ${fmtWhen(st.triggers)}` : "Weekly articles, weekly file check"],
+        ].map(([k, v, sub]) => (React.createElement("div", { key: k, style: { border: `1px solid ${C.line}`, borderRadius: 8, padding: "10px 12px", background: C.bg } },
+            React.createElement("div", { style: { fontSize: 11.5, color: C.soft, fontWeight: 700 } }, k),
+            React.createElement("div", { style: { fontSize: 14, fontWeight: 900, color: C.navy, marginTop: 2 } }, v),
+            sub && React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 2 } }, sub)))))),
+        st && st.building && (React.createElement("div", { style: { marginTop: 10, padding: "8px 10px", background: C.paleTeal, borderRadius: 6, fontSize: 12.5, color: C.ink } },
+            "Building: phase ",
+            st.building.phase,
+            ", ",
+            st.building.done,
+            " done, ",
+            st.building.pending,
+            " to go",
+            st.building.error ? ` · ${st.building.error}` : "",
+            ". Updates every 15 seconds.")),
+        run && !st.building && (React.createElement("div", { style: { marginTop: 10, fontSize: 12.5, color: C.soft } },
+            "Last run ",
+            fmtWhen(run.at),
+            ": ",
+            run.total,
+            " articles, ",
+            run.newCount,
+            " new, ",
+            run.changedCount,
+            " updated, ",
+            run.retiredCount,
+            " retired",
+            run.failed ? `, ${run.failed} CMS errors` : "",
+            run.error ? ` · ${run.error}` : "",
+            ".")),
+        React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 } },
+            React.createElement(Btn, { op: "probe", label: "1. Self-check" }),
+            React.createElement(Btn, { op: "build", label: "2. Build index", tone: "primary" }),
+            React.createElement(Btn, { op: "files", label: "3. Fetch fee & MUE files", tone: "primary" }),
+            React.createElement(Btn, { op: "triggers", label: "4. Install automatic refresh", tone: "primary" }),
+            React.createElement(Btn, { op: "refresh", label: "Refresh articles now" }),
+            st && st.building && React.createElement(Btn, { op: "cancel", label: "Cancel build" }),
+            React.createElement(Btn, { op: "status", label: "Reload status" })),
+        log && (React.createElement("pre", { style: { marginTop: 12, padding: 12, background: "#0F2A43", color: "#DCE8EC", borderRadius: 8, fontSize: 12, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 320, overflow: "auto" } }, log.join("\n"))),
+        st && st.lastError && React.createElement("div", { style: { marginTop: 8, fontSize: 12, color: C.warn } },
+            "Last error: ",
+            st.lastError),
+        error && React.createElement("div", { role: "alert", style: { marginTop: 10, fontSize: 12.5, color: "#991B1B" } }, error),
+        React.createElement("div", { style: { marginTop: 10, fontSize: 11.5, color: C.soft, lineHeight: 1.55 } }, "CMS states that CPT data from these sources is for personal, non-commercial use. Have your compliance owner confirm the use before client-facing rollout.")));
+}
+/* ============================================================
+   BUNDLING (NCCI PTP) TAB
+   ------------------------------------------------------------
+   One code: every pair CMS has published for it, both directions.
+   Two codes: a straight verdict on that pair. Read from the
+   quarterly CMS edit files through the sheet's script.
+   ============================================================ */
+const PTP_MOD = {
+    0: { label: "Never separately payable", tone: "#991B1B", bg: "#FEF2F2", bd: "#FECACA", text: "No modifier can unbundle this pair. Column 2 is denied when billed with column 1 on the same date of service." },
+    1: { label: "Modifier may override", tone: "#166534", bg: "#EFFBF4", bd: "#BFE9D2", text: "A 59, XE, XS, XP or XU modifier (or another NCCI-associated modifier) on the column 2 code can bypass the edit when the services were truly separate and the documentation shows it." },
+    9: { label: "Edit deleted", tone: C.soft, bg: "#F5F7F9", bd: C.line, text: "This pair was removed; the edit no longer applies." },
+};
+function PtpPairRow({ p, focus }) {
+    const m = PTP_MOD[p.mod] || PTP_MOD[9];
+    const other = p.col1 === focus ? p.col2 : p.col1;
+    return (React.createElement("div", { style: { display: "grid", gridTemplateColumns: "92px 1fr auto", gap: 12, alignItems: "start", padding: "9px 12px", border: `1px solid ${C.line}`, borderRadius: 8, background: "#fff" } },
+        React.createElement("div", null,
+            React.createElement("div", { style: { fontWeight: 900, fontSize: 15, color: C.navy, fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, other),
+            React.createElement("div", { style: { fontSize: 11, color: C.soft } }, p.col1 === focus ? "column 2" : "column 1")),
+        React.createElement("div", null,
+            React.createElement("div", { style: { fontSize: 13, color: C.ink } }, p.desc),
+            React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 2 } },
+                "Effective ",
+                p.eff,
+                p.del ? ` · deleted ${p.del}` : "",
+                p.ptype ? ` · ${p.ptype}` : "")),
+        React.createElement("span", { style: { fontSize: 11.5, fontWeight: 800, color: m.tone, background: m.bg, border: `1px solid ${m.bd}`, borderRadius: 5, padding: "3px 8px", whiteSpace: "nowrap" } },
+            p.mod,
+            " \u00B7 ",
+            m.label)));
+}
+function BundlingTab({ account }) {
+    const [a, setA] = useState("");
+    const [b, setB] = useState("");
+    const [kind, setKind] = useState("prac");
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const codeA = cleanCode(a), codeB = cleanCode(b);
+    const ready = !!account && CODE_RE.test(codeA) && (!codeB || CODE_RE.test(codeB));
+    const run = async () => {
+        if (!ready)
+            return;
+        setLoading(true);
+        setError(null);
+        setData(null);
+        try {
+            setData(await callSheet("cmsPtp", { code: codeA, other: codeB, kind, ...(AI_AUTH || {}) }));
+        }
+        catch (e) {
+            setError(friendlyAiError(e));
+        }
+        finally {
+            setLoading(false);
+        }
+    };
+    useSearchLog("Bundling", a, data ? (data.pairs || []).length : null, !!account);
+    const inputStyle = { padding: "10px 12px", fontSize: 14, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none", background: "#fff" };
+    const into = data ? data.pairs.filter((p) => p.col1 === data.code) : [];
+    const under = data ? data.pairs.filter((p) => p.col2 === data.code) : [];
+    const pair = data && data.pair;
+    const pm = pair ? (PTP_MOD[pair.mod] || PTP_MOD[9]) : null;
+    return (React.createElement("div", { style: { display: "grid", gap: 14 } },
+        React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 18 } },
+            React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
+                React.createElement(LiveBadge, null),
+                React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "NCCI bundling check")),
+            React.createElement("div", { style: { fontSize: 13, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, "Enter one code to see every pair CMS bundles it with. Add a second code for a straight answer on that pair: payable together, needs a modifier, or never. Each search reads the current CMS edit file live, so allow up to 40 seconds."),
+            React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12, alignItems: "center" } },
+                React.createElement("input", { value: a, onChange: (e) => setA(e.target.value), onKeyDown: (e) => { if (e.key === "Enter")
+                        run(); }, placeholder: "CPT/HCPCS code, e.g. 92134", style: { ...inputStyle, flex: "1 1 200px", maxWidth: 260 } }),
+                React.createElement("span", { style: { fontSize: 12.5, color: C.soft, fontWeight: 700 } }, "with"),
+                React.createElement("input", { value: b, onChange: (e) => setB(e.target.value), onKeyDown: (e) => { if (e.key === "Enter")
+                        run(); }, placeholder: "second code (optional), e.g. 92133", style: { ...inputStyle, flex: "1 1 200px", maxWidth: 280 } }),
+                React.createElement("select", { value: kind, onChange: (e) => setKind(e.target.value), style: { ...inputStyle, padding: "9px 10px", fontSize: 13 } },
+                    React.createElement("option", { value: "prac" }, "Practitioner edits"),
+                    React.createElement("option", { value: "hosp" }, "Hospital outpatient edits")),
+                React.createElement("button", { onClick: run, disabled: !ready || loading, style: { background: ready ? GRAD : "#CBD9DE", color: "#fff", border: "none", borderRadius: 7, padding: "10px 18px", fontSize: 14, fontWeight: 800, cursor: ready ? "pointer" : "default" } }, loading ? "Reading CMS…" : "Check bundling")),
+            data && data.release && React.createElement("div", { style: { fontSize: 11.5, color: C.soft, marginTop: 8 } }, data.release),
+            !account && (React.createElement("div", { style: { marginTop: 12, padding: 12, background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } },
+                React.createElement("b", null, "Sign in first."),
+                " Live reads from cms.gov go through your account so the sheet can apply daily limits. This works on the published site after sign-in; it does not run in a file preview.")),
+            loading && React.createElement("div", { style: { marginTop: 12 } },
+                React.createElement(LiveSearching, { what: `the NCCI PTP edit file for ${codeA}${codeB ? " and " + codeB : ""}` })),
+            data && (React.createElement(PulledFrom, { items: [
+                    { url: data.fileUrl || data.pageUrl, label: `CMS NCCI PTP edit file (${data.release || "current quarter"})`, note: data.cached ? "read live from cms.gov earlier today" : "read live from cms.gov for this search; nothing is stored" },
+                    { url: "https://www.cms.gov/medicare/coding-billing/national-correct-coding-initiative-ncci-edits/medicare-ncci-policy-manual", label: "NCCI Policy Manual", note: "the reasoning behind each edit" },
+                ] })),
+            error && React.createElement("div", { style: { marginTop: 12, padding: 12, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B" } }, error)),
+        data && pair && (React.createElement("div", { style: { padding: 16, background: pm.bg, border: `1px solid ${pm.bd}`, borderRadius: 10 } },
+            React.createElement("div", { style: { fontSize: 11.5, fontWeight: 900, letterSpacing: 0.4, color: pm.tone } }, pair.mod === 1 ? "BUNDLED: MODIFIER MAY OVERRIDE" : pair.mod === 0 ? "BUNDLED: NEVER SEPARATELY PAYABLE" : "EDIT DELETED"),
+            React.createElement("div", { style: { fontSize: 14, color: C.ink, marginTop: 6, lineHeight: 1.6 } },
+                React.createElement("b", { style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, pair.col2),
+                " is the column 2 code of ",
+                React.createElement("b", { style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, pair.col1),
+                ". ",
+                pm.text),
+            React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 6 } },
+                "Effective ",
+                pair.eff,
+                pair.del ? `, deleted ${pair.del}` : "",
+                " \u00B7 ",
+                pair.ptype || "Practitioner edits",
+                pair.rationale ? ` · Rationale: ${pair.rationale}` : ""))),
+        data && data.other && !pair && (React.createElement("div", { style: { padding: 16, background: "#EFFBF4", border: "1px solid #BFE9D2", borderRadius: 10 } },
+            React.createElement("div", { style: { fontSize: 11.5, fontWeight: 900, letterSpacing: 0.4, color: "#166534" } }, "NO NCCI EDIT BETWEEN THESE CODES"),
+            React.createElement("div", { style: { fontSize: 14, color: C.ink, marginTop: 6, lineHeight: 1.6 } },
+                "CMS publishes no PTP pair for ",
+                React.createElement("b", null, data.code),
+                " and ",
+                React.createElement("b", null, data.other),
+                " in the ",
+                kind === "prac" ? "practitioner" : "hospital",
+                " edits. They can be billed together, subject to MUE units and medical necessity."))),
+        data && (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 18 } },
+            React.createElement("div", { style: { fontSize: 15, fontWeight: 900, color: C.navy } },
+                "Pairs published for ",
+                data.code),
+            React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 3 } },
+                into.length,
+                " code",
+                into.length === 1 ? "" : "s",
+                " bundle into ",
+                data.code,
+                " \u00B7 ",
+                data.code,
+                " bundles into ",
+                under.length,
+                " code",
+                under.length === 1 ? "" : "s"),
+            into.length > 0 && (React.createElement(Section, { label: `Codes that bundle INTO ${data.code} (${data.code} is column 1; these deny when billed with it)` },
+                React.createElement("div", { style: { display: "grid", gap: 6 } }, into.map((p, i) => React.createElement(PtpPairRow, { key: i, p: p, focus: data.code }))))),
+            under.length > 0 && (React.createElement(Section, { label: `${data.code} bundles INTO these codes (${data.code} is column 2; it denies when billed with them)` },
+                React.createElement("div", { style: { display: "grid", gap: 6 } }, under.map((p, i) => React.createElement(PtpPairRow, { key: i, p: p, focus: data.code }))))),
+            data.pairs.length === 0 && React.createElement("div", { style: { fontSize: 13, color: C.ink, marginTop: 10 } },
+                "CMS publishes no PTP edits for ",
+                data.code,
+                " in this quarter's ",
+                kind === "prac" ? "practitioner" : "hospital",
+                " file."),
+            data.trimmed && React.createElement("div", { style: { fontSize: 12.5, color: C.warn, marginTop: 8 } },
+                "Showing the first ",
+                data.pairs.length,
+                " of ",
+                data.total,
+                " pairs. Use the two-code check for a specific pair."),
+            data.reverseNote && under.length >= 0 && React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 8, lineHeight: 1.5 } }, data.reverseNote),
+            React.createElement("div", { style: { marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" } },
+                React.createElement(SotLink, { href: "https://www.cms.gov/medicare/coding-billing/national-correct-coding-initiative-ncci-edits/medicare-ncci-procedure-procedure-ptp-edits", label: `CMS PTP edit files${data.release ? ": " + data.release : ""}` }),
+                React.createElement(SotLink, { href: "https://www.cms.gov/medicare/coding-billing/national-correct-coding-initiative-ncci-edits/medicare-ncci-policy-manual", label: "NCCI Policy Manual (the why behind the edits)" }))))));
 }
 /* ============================================================
    CMS DATASETS BY DATE OF SERVICE
@@ -4772,6 +5488,7 @@ function AdminPanel({ account }) {
                 React.createElement("span", { style: { display: "block", fontSize: 14, fontWeight: 800, color: C.navy } }, "Open the accounts spreadsheet"),
                 React.createElement("span", { style: { display: "block", fontSize: 12.5, color: C.soft, marginTop: 3, lineHeight: 1.5 } }, "Every account, and your Activation codes tab. Download as Excel from File \u2192 Download. Passwords are stored only as hashes on a hidden tab \u2014 nobody can read them.")),
             React.createElement("span", { style: { fontSize: 13, fontWeight: 800, color: C.teal, whiteSpace: "nowrap" } }, "Open \u2197"))),
+        React.createElement(CmsDataCard, { account: account }),
         React.createElement(UsageCard, { account: account }),
         React.createElement(FeedbackCard, { account: account }),
         React.createElement(AlertsCard, { account: account }),
@@ -5656,6 +6373,7 @@ function App() {
     };
     const tabs = [
         { id: "rules", label: "Coding rules" },
+        { id: "bundling", label: "Bundling" },
         { id: "mods", label: "Modifiers" },
         { id: "pos", label: "POS codes" },
         { id: "cms", label: "CMS sources" },
@@ -5701,9 +6419,9 @@ function App() {
                 React.createElement("div", { style: { position: "relative", zIndex: 1 } },
                     React.createElement(HeroGreeting, { account: account, tip: tip, onShowTip: showTip }),
                     React.createElement("div", { style: { fontSize: 11.5, marginTop: 12, opacity: 0.85 } },
-                        "Dataset: ",
+                        "Curated rules: ",
                         DATASET_VERSION,
-                        " \u00B7 CMS is the source of truth \u00B7 confirm anything time-sensitive on the CMS sources tab")))),
+                        " \u00B7 Coverage policies, fee schedule and unit limits are read live from cms.gov \u00B7 CMS is the source of truth")))),
         React.createElement("div", { style: { maxWidth: 1020, margin: "0 auto", padding: "18px 20px 60px" } },
             tab === "rules" && (React.createElement(React.Fragment, null,
                 limited && (React.createElement("div", { style: { background: C.paleTeal, border: "1px solid #BFE5E5", borderRadius: 8, padding: "10px 13px", marginBottom: 12, fontSize: 12.5, color: C.ink, lineHeight: 1.55 } },
@@ -5727,10 +6445,12 @@ function App() {
                             spec[1]),
                         ". The cross-specialty rules (E/M, telehealth, global surgery) still apply and are shown below."),
                     React.createElement(AiLookupBlock, { topic: `Most commonly billed CPT and HCPCS codes for Medicare specialty ${spec[0]} (${spec[1]}), with their POS codes, required modifiers, covered ICD-10 diagnoses, frequency limits, and the CMS references`, label: `Look up ${spec[1]} coding rules on cms.gov`, hint: "Or open the CMS sources tab to check manually" }))),
+                looksLikeCode(query) && (React.createElement("div", { style: { marginBottom: 12 } },
+                    React.createElement(CmsCoveragePanel, { code: cleanCode(query), account: account }))),
                 React.createElement("div", { id: "astra-rules", style: { display: "grid", gap: 12, scrollMarginTop: 16 } }, filtered.length === 0 ? (React.createElement("div", { style: { background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 10, padding: 22 } },
                     React.createElement("div", { style: { fontSize: 14, fontWeight: 800, color: C.navy } }, query.trim() ? `No curated rule for "${query.trim()}" yet` : "Nothing in the curated library matches"),
-                    React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, "Look it up live against current CMS guidance below, or see the CMS sources tab for where a rule like this is published."),
-                    query.trim() && (React.createElement(AiLookupBlock, { topic: `${query.trim()} — current Medicare rules: which POS codes apply, which modifiers, covered ICD-10 diagnoses, unit and frequency limits, and the latest transmittal/CR or MLN Matters reference`, label: `Look up "${query.trim()}" on cms.gov`, hint: "Searches CMS and returns the rule with its citation" })))) : filtered.map((r, i) => React.createElement(RuleCard, { key: i, r: r }))))),
+                    React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, looksLikeCode(query) ? "The live CMS policy for this code is shown above. For a plain-English rule, ask Astra below." : "Look it up live against current CMS guidance below, or see the CMS sources tab for where a rule like this is published."),
+                    query.trim() && (React.createElement(AiLookupBlock, { topic: `${query.trim()} — current Medicare rules: which POS codes apply, which modifiers, covered ICD-10 diagnoses, unit and frequency limits, and the latest transmittal/CR or MLN Matters reference`, label: `Look up "${query.trim()}" on cms.gov`, hint: "Searches CMS and returns the rule with its citation" })))) : filtered.map((r, i) => React.createElement(RuleCard, { key: i, r: r, account: account }))))),
             tab === "mods" && (React.createElement(React.Fragment, null,
                 React.createElement("input", { value: modQ, onChange: (e) => setModQ(e.target.value), placeholder: "Search modifiers \u2014 code or keyword (e.g. GT, 59, telehealth, anesthesia)\u2026", style: { ...inputStyle, width: "100%", boxSizing: "border-box", marginBottom: 14 } }),
                 React.createElement("div", { style: { display: "grid", gap: 16 } },
@@ -5752,7 +6472,10 @@ function App() {
                         React.createElement("div", { style: { fontWeight: 700, fontSize: 13.5, color: C.ink } }, n),
                         React.createElement("div", { style: { fontSize: 12.5, color: C.soft, lineHeight: 1.5, marginTop: 2 } }, d)))))),
                 React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 12 } }, POS_UNASSIGNED))),
-            tab === "cms" && React.createElement(CmsSources, null),
+            tab === "bundling" && React.createElement(BundlingTab, { account: account }),
+            tab === "cms" && (React.createElement("div", { style: { display: "grid", gap: 14 } },
+                React.createElement(CmsUpdatesCard, null),
+                React.createElement(CmsSources, null))),
             tab === "admin" && isAdmin && React.createElement(AdminPanel, { account: account }),
             tab === "ai" && isAdmin && React.createElement(AiPanel, { account: account })),
         showChangePw && account && (React.createElement(ChangePassword, { account: account, onClose: () => setShowChangePw(false), onChanged: onPasswordChanged })),
