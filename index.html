@@ -3209,6 +3209,52 @@ function MueBlock({ mue, label }) {
    carry a second decimal part, such as 220.6.17. */
 const DOC_RE = /^(A\d{5,6}|L\d{5,6}|(NCD)?\d{1,3}(\.\d{1,2}){1,2})$/;
 const looksLikeDoc = (s) => DOC_RE.test(String(s || "").trim().toUpperCase().replace(/\s+/g, "").replace(/[^A-Z0-9.]/g, ""));
+const HCPCS_KIND = {
+    A: "supplies, ambulance and other transport items", B: "enteral and parenteral therapy",
+    C: "hospital outpatient pass-through items", E: "durable medical equipment",
+    G: "professional services and procedures CMS codes itself", H: "behavioral health and substance use services",
+    J: "drugs that are not self-administered", K: "DME codes set by the DME MACs",
+    L: "orthotics and prosthetics", M: "medical services and screening",
+    P: "pathology and laboratory services", Q: "temporary codes CMS issues between annual updates",
+    R: "diagnostic radiology services", S: "services coded for private payers",
+    T: "services coded for state Medicaid agencies", U: "public health emergency laboratory tests",
+    V: "vision and hearing services",
+};
+/* Is this a procedure code someone has typed into the policy box? */
+function procedureCodeNote(raw) {
+    const c = cleanCode(raw);
+    if (/^\d{5}$/.test(c))
+        return { code: c, what: "a CPT procedure code" };
+    if (/^\d{4}F$/.test(c))
+        return { code: c, what: "a CPT Category II code, used for quality reporting" };
+    if (/^\d{4}T$/.test(c))
+        return { code: c, what: "a CPT Category III code for emerging technology" };
+    if (/^\d{4}[MU]$/.test(c))
+        return { code: c, what: "a CPT laboratory code" };
+    if (/^[A-Z]\d{4}$/.test(c) && HCPCS_KIND[c.charAt(0)])
+        return { code: c, what: `a HCPCS Level II code for ${HCPCS_KIND[c.charAt(0)]}` };
+    return null;
+}
+function NotAPolicy({ note, onGoToCode }) {
+    return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.warn}`, borderRadius: 10, padding: 16 } },
+        React.createElement("div", { style: { fontSize: 11.5, fontWeight: 900, letterSpacing: 0.4, color: C.warn } }, "THAT IS A CODE, NOT A POLICY NUMBER"),
+        React.createElement("div", { style: { fontSize: 13.5, color: C.ink, marginTop: 6, lineHeight: 1.6 } },
+            React.createElement("b", { style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, note.code),
+            " is ",
+            note.what,
+            ". Policy numbers look like ",
+            React.createElement("b", null, "A57637"),
+            " for an article, ",
+            React.createElement("b", null, "L33996"),
+            " for an LCD or ",
+            React.createElement("b", null, "220.4"),
+            " for an NCD."),
+        React.createElement("div", { style: { fontSize: 13, color: C.soft, marginTop: 6, lineHeight: 1.55 } }, "Search the code on Coding rules instead: that shows every policy listing it, the billable diagnoses, the fee schedule indicators and the unit limits."),
+        onGoToCode && (React.createElement("button", { onClick: () => onGoToCode(note.code), style: { marginTop: 12, background: GRAD, color: "#fff", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 800, cursor: "pointer" } },
+            "Look up ",
+            note.code,
+            " on Coding rules"))));
+}
 function DocBadge({ type }) {
     const tone = type === "NCD" ? { bg: "#EAF3FB", fg: "#1D4E7A", bd: "#C7DDF0" } : type === "LCD" ? { bg: "#F3EEFB", fg: "#5B3A91", bd: "#DDD0F2" } : { bg: "#E8F6F6", fg: "#0B6E6E", bd: "#BFE5E5" };
     return React.createElement("span", { style: { fontSize: 10.5, fontWeight: 900, letterSpacing: 0.4, color: tone.fg, background: tone.bg, border: `1px solid ${tone.bd}`, borderRadius: 4, padding: "2px 7px" } }, type);
@@ -3335,11 +3381,12 @@ function CmsDocPanel({ query, account, onClose }) {
         React.createElement(PulledFrom, { items: [{ url: "https://www.cms.gov/medicare-coverage-database/search.aspx", label: "Medicare Coverage Database", note: "Billing & Coding articles, LCDs and NCDs indexed from CMS, refreshed weekly" }] })));
 }
 /* Article, LCD and NCD numbers, or words from a title. */
-function DocumentsTab({ account }) {
+function DocumentsTab({ account, onGoToCode }) {
     const [input, setInput] = useState("");
     const [query, setQuery] = useState("");
     const submit = () => { const t = input.trim(); if (t.length >= 3)
         setQuery(t); };
+    const codeNote = query && !looksLikeDoc(query) ? procedureCodeNote(query) : null;
     const inputStyle = { padding: "10px 12px", fontSize: 14, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none", background: "#fff" };
     const kinds = [
         ["Article", "A57637", "Billing & Coding articles. These are where the CPT, HCPCS and ICD-10 codes actually live."],
@@ -3364,7 +3411,8 @@ function DocumentsTab({ account }) {
                     React.createElement(DocBadge, { type: t }),
                     React.createElement("button", { onClick: () => { setInput(eg); setQuery(eg); }, style: { background: "transparent", border: "none", color: C.teal, fontWeight: 800, fontSize: 12.5, cursor: "pointer", padding: 0, fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, eg)),
                 React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 5, lineHeight: 1.5 } }, note)))))),
-        query && React.createElement(CmsDocPanel, { key: query, query: query, account: account, onClose: () => { setQuery(""); setInput(""); } })));
+        codeNote && React.createElement(NotAPolicy, { note: codeNote, onGoToCode: onGoToCode }),
+        query && !codeNote && React.createElement(CmsDocPanel, { key: query, query: query, account: account, onClose: () => { setQuery(""); setInput(""); } })));
 }
 /* The answer to "can I bill these two together", shown inline under a
    code search and on the Bundling tab. */
@@ -6721,7 +6769,7 @@ function App() {
                         React.createElement("div", { style: { fontSize: 12.5, color: C.soft, lineHeight: 1.5, marginTop: 2 } }, d)))))),
                 React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 12 } }, POS_UNASSIGNED))),
             tab === "bundling" && React.createElement(BundlingTab, { account: account }),
-            tab === "documents" && React.createElement(DocumentsTab, { account: account }),
+            tab === "documents" && (React.createElement(DocumentsTab, { account: account, onGoToCode: (c) => { setTab("rules"); setSpec(null); setQuery(c); } })),
             tab === "cms" && (React.createElement("div", { style: { display: "grid", gap: 14 } },
                 React.createElement(CmsUpdatesCard, null),
                 React.createElement(CmsSources, null))),
