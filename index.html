@@ -3490,6 +3490,7 @@ function DocumentsTab({ account, onGoToCode }) {
         ["NCD", "220.4", "National Coverage Determinations. Nationwide policy, every MAC."],
     ];
     return (React.createElement("div", { style: { display: "grid", gap: 14 } },
+        React.createElement(CodeDxPolicy, { account: account }),
         React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.cyan}`, borderRadius: 10, padding: 18 } },
             React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
                 React.createElement(LiveBadge, { text: "CMS POLICIES" }),
@@ -6860,8 +6861,6 @@ function App() {
                     " ",
                     allowed.map((c) => (SPECIALTY_CODES.find((x) => x[0] === c) || [c, c])[1]).join(", "),
                     ". Rules that apply to every specialty are shown as well. Contact Purview Healthcare to change this.")),
-                React.createElement("div", { style: { marginBottom: 14 } },
-                    React.createElement(CodeDxPolicy, { account: account })),
                 React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 } },
                     React.createElement(SpecialtyPicker, { value: spec, onPick: setSpec, allowed: allowed }),
                     React.createElement("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: "Search a CPT or HCPCS code, modifier, POS, diagnosis or keyword\u2026", style: { ...inputStyle, flex: 1, minWidth: 220 } })),
