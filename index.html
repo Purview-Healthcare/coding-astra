@@ -3459,13 +3459,14 @@ function CmsDataCard({ account }) {
     const [busy, setBusy] = useState("");
     const [error, setError] = useState(null);
     const [feeZip, setFeeZip] = useState("");
+    const [traceCode, setTraceCode] = useState("");
     const call = async (op, label) => {
         setBusy(op);
         setError(null);
         if (op !== "status")
             setLog(null);
         try {
-            const r = await callSheet("cmsAdmin", { ...creds, op, ...(op === "files" ? { feeZip: feeZip.trim() } : {}) });
+            const r = await callSheet("cmsAdmin", { ...creds, op, ...(op === "files" ? { feeZip: feeZip.trim() } : {}), ...(op === "trace" ? { code: traceCode.trim() } : {}) });
             if (r.status)
                 setSt(r.status);
             if (r.log)
@@ -3548,6 +3549,10 @@ function CmsDataCard({ account }) {
             React.createElement(Btn, { op: "refresh", label: "Refresh articles now" }),
             st && st.building && React.createElement(Btn, { op: "cancel", label: "Cancel build" }),
             React.createElement(Btn, { op: "status", label: "Reload status" })),
+        React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 } },
+            React.createElement("input", { value: traceCode, onChange: (e) => setTraceCode(e.target.value), onKeyDown: (e) => { if (e.key === "Enter" && !busy)
+                    call("trace", "Trace"); }, placeholder: "Why did a code return nothing? Enter it here, e.g. 82306", style: { flex: "1 1 260px", padding: "8px 10px", fontSize: 12.5, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } }),
+            React.createElement(Btn, { op: "trace", label: "Trace this code" })),
         React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 } },
             React.createElement("input", { value: feeZip, onChange: (e) => setFeeZip(e.target.value), placeholder: "Only if step 3 can't find the fee file: paste the RVU zip address from cms.gov here, then run step 3 again", style: { flex: "1 1 420px", padding: "8px 10px", fontSize: 12.5, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } })),
         log && (React.createElement("pre", { style: { marginTop: 12, padding: 12, background: "#0F2A43", color: "#DCE8EC", borderRadius: 8, fontSize: 12, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 320, overflow: "auto" } }, log.join("\n"))),
