@@ -4591,7 +4591,7 @@ function friendlyAiError(err) {
         return msg || "The daily question limit has been reached. It resets tomorrow.";
     }
     if (code === "SESSION_ENDED") {
-        return "Your sign-in has ended. Sign in again and the AI buttons will work.";
+        return "Your sign-in has ended. Sign in again and this will work.";
     }
     if (code === "AI_KEY" || code === "AI_MODEL") {
         return msg + " (An administrator can fix this on the AI tab.)";
@@ -4601,7 +4601,7 @@ function friendlyAiError(err) {
             : "The question didn't get through to the sheet. Try again — if it keeps happening, an administrator can press \"Test it\" on the AI tab to see the real reason.";
     }
     if (/unknown action/i.test(msg)) {
-        return "The sheet's script needs updating before AI works: publish a new version in Apps Script (Deploy → Manage deployments → Edit → Version: New version).";
+        return "This feature is newer than the script the site is talking to. In Apps Script, paste the latest backend, then Deploy → Manage deployments → pencil → Version: New version → Deploy. Opening the /exec address in a browser shows which build is live.";
     }
     if (/credit|balance|quota|billing/i.test(msg)) {
         return "Google's AI account has hit its quota or needs billing enabled. Check the key's project at aistudio.google.com.";
