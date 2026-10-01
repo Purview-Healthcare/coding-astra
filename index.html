@@ -368,6 +368,9 @@ const FX_CSS = `
 @keyframes astraPulse { 0% { transform: scale(1); opacity: .5; } 100% { transform: scale(1.75); opacity: 0; } }
 @keyframes astraBlink { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
 .astra-live-dot { animation: astraBlink 1s ease-in-out infinite; }
+.astra-field { transition: border-color .15s ease, box-shadow .15s ease; }
+.astra-field:focus { border-color: #0FA294 !important; box-shadow: 0 0 0 3px rgba(15,162,148,0.16); }
+.astra-field:hover { border-color: #B9D3DA; }
 
 .astra-line, .astra-line-light { position: relative; }
 .astra-line::after, .astra-line-light::after {
@@ -3546,11 +3549,11 @@ function PairVerdict({ data, code }) {
         React.createElement("div", { style: { marginTop: 10 } },
             React.createElement(SotLink, { href: data.fileUrl || data.pageUrl || "https://www.cms.gov/medicare/coding-billing/national-correct-coding-initiative-ncci-edits/medicare-ncci-procedure-procedure-ptp-edits", label: "CMS NCCI PTP edit file" }))));
 }
-function CmsCoveragePanel({ code, account, onClose, dxFromSearch }) {
+function CmsCoveragePanel({ code, account, onClose, dxFromSearch, pairFromSearch, pairKindFromSearch }) {
     const [stateName, setStateName] = useState(() => loadCmsState());
     const [dx, setDx] = useState(dxFromSearch || "");
-    const [pairCode, setPairCode] = useState("");
-    const [pairKind, setPairKind] = useState("prac");
+    const [pairCode, setPairCode] = useState(pairFromSearch || "");
+    const [pairKind, setPairKind] = useState(pairKindFromSearch || "prac");
     const [pairData, setPairData] = useState(null);
     const [pairLoading, setPairLoading] = useState(false);
     const [pairError, setPairError] = useState(null);
@@ -3580,6 +3583,20 @@ function CmsCoveragePanel({ code, account, onClose, dxFromSearch }) {
     };
     useEffect(() => { setData(null); setPairData(null); setPairError(null); if (signedIn)
         run(asked); }, [code, stateName, signedIn]);
+    // a second code typed in the search row runs on its own too
+    useEffect(() => {
+        if (pairFromSearch === undefined)
+            return undefined;
+        setPairCode(pairFromSearch || "");
+        setPairKind(pairKindFromSearch || "prac");
+        const want = cleanCode(pairFromSearch);
+        if (!CODE_RE.test(want) || !signedIn) {
+            setPairData(null);
+            return undefined;
+        }
+        const t = setTimeout(() => { checkPair(pairFromSearch, pairKindFromSearch); }, 700);
+        return () => clearTimeout(t);
+    }, [pairFromSearch, pairKindFromSearch, code, signedIn]);
     // a diagnosis typed in the search row runs alongside the code, once typing settles
     useEffect(() => {
         if (dxFromSearch === undefined)
@@ -3599,15 +3616,16 @@ function CmsCoveragePanel({ code, account, onClose, dxFromSearch }) {
             return;
         logUsage("Live CMS", "search", code, (data.articles || []).length);
     }, [data, code]);
-    const checkPair = async () => {
-        const other = cleanCode(pairCode);
+    const checkPair = async (overrideCode, overrideKind) => {
+        const other = cleanCode(overrideCode !== undefined ? overrideCode : pairCode);
+        const kind = overrideKind || pairKind;
         if (!CODE_RE.test(other) || !signedIn)
             return;
         setPairLoading(true);
         setPairError(null);
         setPairData(null);
         try {
-            setPairData(await callSheet("cmsPtp", { code, other, kind: pairKind, ...(AI_AUTH || {}) }));
+            setPairData(await callSheet("cmsPtp", { code, other, kind, ...(AI_AUTH || {}) }));
         }
         catch (e) {
             setPairError(friendlyAiError(e));
@@ -3658,7 +3676,12 @@ function CmsCoveragePanel({ code, account, onClose, dxFromSearch }) {
                             run(dx); }, placeholder: "ICD-10-CM code, e.g. H35.32", style: { ...inputStyle, flex: "1 1 200px", maxWidth: 280 } }),
                     React.createElement("button", { onClick: () => run(dx), disabled: loading || !cleanCode(dx), style: { background: cleanCode(dx) ? GRAD : "#CBD9DE", color: "#fff", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 800, cursor: cleanCode(dx) ? "pointer" : "default" } }, loading ? "Checking…" : "Check diagnosis"),
                     asked && !loading && React.createElement("button", { onClick: () => { setDx(""); run(""); }, style: { background: "transparent", border: "none", color: C.teal, fontWeight: 800, fontSize: 12.5, cursor: "pointer" } }, "Clear")))),
-            React.createElement(Section, { label: `Check bundling with ${code}` },
+            pairFromSearch !== undefined && pairData && React.createElement("div", { style: { marginTop: 12 } },
+                React.createElement(PairVerdict, { data: pairData, code: code })),
+            pairFromSearch !== undefined && pairLoading && React.createElement("div", { style: { marginTop: 12 } },
+                React.createElement(LiveSearching, { what: `the NCCI PTP edit file for ${code} and ${cleanCode(pairFromSearch)}` })),
+            pairFromSearch !== undefined && pairError && React.createElement("div", { style: { marginTop: 12, padding: 12, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B" } }, pairError),
+            pairFromSearch === undefined && (React.createElement(Section, { label: `Check bundling with ${code}` },
                 React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
                     React.createElement("input", { value: pairCode, onChange: (e) => setPairCode(e.target.value), onKeyDown: (e) => { if (e.key === "Enter")
                             checkPair(); }, placeholder: "Second CPT/HCPCS code, e.g. 92250", style: { ...inputStyle, flex: "1 1 200px", maxWidth: 280 } }),
@@ -3673,7 +3696,7 @@ function CmsCoveragePanel({ code, account, onClose, dxFromSearch }) {
                     React.createElement(LiveSearching, { what: `the NCCI PTP edit file for ${code} and ${cleanCode(pairCode)}` })),
                 pairError && React.createElement("div", { style: { marginTop: 10, padding: 12, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B" } }, pairError),
                 pairData && React.createElement("div", { style: { marginTop: 10 } },
-                    React.createElement(PairVerdict, { data: pairData, code: code }))),
+                    React.createElement(PairVerdict, { data: pairData, code: code })))),
             data.lcds && data.lcds.length > 0 && (React.createElement(Section, { label: `Coverage policies (LCDs) that list ${code}` },
                 React.createElement("div", { style: { fontSize: 12.5, color: C.ink, lineHeight: 1.55, marginBottom: 8 } }, "DME MACs keep their HCPCS codes in the LCD and the covered diagnoses in the LCD's policy article, so both are shown."),
                 React.createElement("div", { style: { display: "grid", gap: 6 } }, data.lcds.map((l) => React.createElement(DocRow, { key: l.displayId, d: { ...l, type: "LCD", states: (l.states || []).join("; ") } }))))),
@@ -6703,7 +6726,10 @@ function App() {
     useEffect(() => { setAiAuth(account); }, [account]);
     const [spec, setSpec] = useState(null);
     const [query, setQuery] = useState("");
+    const [mode, setMode] = useState("code");
     const [rulesDx, setRulesDx] = useState("");
+    const [rulesPair, setRulesPair] = useState("");
+    const [rulesKind, setRulesKind] = useState("prac");
     const [modQ, setModQ] = useState("");
     const [posQ, setPosQ] = useState("");
     // Re-check a remembered sign-in with the sheet once per visit: a removed,
@@ -6875,12 +6901,26 @@ function App() {
                     " ",
                     allowed.map((c) => (SPECIALTY_CODES.find((x) => x[0] === c) || [c, c])[1]).join(", "),
                     ". Rules that apply to every specialty are shown as well. Contact Purview Healthcare to change this.")),
-                React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" } },
-                    React.createElement(SpecialtyPicker, { value: spec, onPick: setSpec, allowed: allowed }),
-                    React.createElement("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: "Search a CPT or HCPCS code, modifier, POS or keyword\u2026", style: { ...inputStyle, flex: "1 1 260px", minWidth: 200 } }),
-                    looksLikeCode(query) && (React.createElement(React.Fragment, null,
-                        React.createElement("span", { style: { fontSize: 12.5, color: C.soft, fontWeight: 700 } }, "with diagnosis"),
-                        React.createElement("input", { value: rulesDx, onChange: (e) => setRulesDx(e.target.value), placeholder: "ICD-10, optional", "aria-label": "Diagnosis to check against the policies", style: { ...inputStyle, flex: "0 1 190px", minWidth: 150 } })))),
+                React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderRadius: 10, padding: 16, marginBottom: 14 } },
+                    React.createElement("div", { style: { fontSize: 11.5, fontWeight: 900, letterSpacing: 0.4, color: C.teal, marginBottom: 9 } }, "WHAT ARE YOU LOOKING UP?"),
+                    React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 } }, [["code", "Just the code"], ["dx", "Code + diagnosis"], ["bundle", "Two codes together"]].map(([id, label]) => (React.createElement("button", { key: id, onClick: () => setMode(id), "aria-pressed": mode === id, style: {
+                            background: mode === id ? GRAD : "#fff", color: mode === id ? "#fff" : C.navy,
+                            border: mode === id ? "none" : `1.5px solid ${C.line}`, borderRadius: 999,
+                            padding: "8px 16px", fontSize: 13, fontWeight: 800, cursor: "pointer",
+                        } }, label)))),
+                    React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" } },
+                        React.createElement("input", { className: "astra-field", value: query, onChange: (e) => setQuery(e.target.value), "aria-label": "CPT or HCPCS code", placeholder: mode === "code" ? "CPT or HCPCS code, modifier, POS or keyword…" : "CPT or HCPCS code, e.g. 92134", style: { ...inputStyle, flex: "1 1 240px", minWidth: 190 } }),
+                        mode === "dx" && (React.createElement(React.Fragment, null,
+                            React.createElement("span", { style: { fontSize: 12.5, color: C.soft, fontWeight: 700 } }, "with"),
+                            React.createElement("input", { className: "astra-field", value: rulesDx, onChange: (e) => setRulesDx(e.target.value), "aria-label": "Diagnosis to check against the policies", placeholder: "ICD-10 diagnosis, e.g. H35.3131", style: { ...inputStyle, flex: "1 1 200px", minWidth: 170 } }))),
+                        mode === "bundle" && (React.createElement(React.Fragment, null,
+                            React.createElement("span", { style: { fontSize: 12.5, color: C.soft, fontWeight: 700 } }, "with"),
+                            React.createElement("input", { className: "astra-field", value: rulesPair, onChange: (e) => setRulesPair(e.target.value), "aria-label": "Second code to check for bundling", placeholder: "second code, e.g. 92250", style: { ...inputStyle, flex: "1 1 190px", minWidth: 160 } }),
+                            React.createElement("select", { className: "astra-field", value: rulesKind, onChange: (e) => setRulesKind(e.target.value), "aria-label": "Which NCCI edit set", style: { ...inputStyle, padding: "9px 10px", fontSize: 13 } },
+                                React.createElement("option", { value: "prac" }, "Practitioner edits"),
+                                React.createElement("option", { value: "hosp" }, "Hospital outpatient edits"))))),
+                    React.createElement("div", { style: { marginTop: 10 } },
+                        React.createElement(SpecialtyPicker, { value: spec, onPick: setSpec, allowed: allowed }))),
                 spec && !specHasCurated && (React.createElement("div", { style: { background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 10, padding: "14px 16px", marginBottom: 14 } },
                     React.createElement("div", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.55 } },
                         "No specialty-specific rules written yet for ",
@@ -6896,7 +6936,7 @@ function App() {
                     React.createElement("button", { onClick: () => setTab("documents"), style: { background: "transparent", border: "none", color: C.teal, fontWeight: 800, fontSize: 13, cursor: "pointer", padding: 0, textDecoration: "underline" } }, "CMS Policies tab"),
                     ".")),
                 !looksLikeDoc(query) && looksLikeCode(query) && (React.createElement("div", { style: { marginBottom: 12 } },
-                    React.createElement(CmsCoveragePanel, { code: cleanCode(query), dxFromSearch: rulesDx, account: account }))),
+                    React.createElement(CmsCoveragePanel, { code: cleanCode(query), account: account, dxFromSearch: mode === "dx" ? rulesDx : undefined, pairFromSearch: mode === "bundle" ? rulesPair : undefined, pairKindFromSearch: rulesKind }))),
                 React.createElement("div", { id: "astra-rules", style: { display: "grid", gap: 12, scrollMarginTop: 16 } }, filtered.length === 0 && looksLikeDoc(query) ? null : filtered.length === 0 ? (React.createElement("div", { style: { background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 10, padding: 22 } },
                     React.createElement("div", { style: { fontSize: 14, fontWeight: 800, color: C.navy } }, query.trim() ? `No curated rule for "${query.trim()}" yet` : "Nothing in the curated library matches"),
                     React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, looksLikeCode(query) ? "The live CMS policy for this code is shown above. For a plain-English rule, ask Astra below." : "Look it up live against current CMS guidance below, or see the CMS sources tab for where a rule like this is published."),
