@@ -3490,7 +3490,6 @@ function DocumentsTab({ account, onGoToCode }) {
         ["NCD", "220.4", "National Coverage Determinations. Nationwide policy, every MAC."],
     ];
     return (React.createElement("div", { style: { display: "grid", gap: 14 } },
-        React.createElement(CodeDxPolicy, { account: account }),
         React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.cyan}`, borderRadius: 10, padding: 18 } },
             React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
                 React.createElement(LiveBadge, { text: "CMS POLICIES" }),
@@ -3547,9 +3546,9 @@ function PairVerdict({ data, code }) {
         React.createElement("div", { style: { marginTop: 10 } },
             React.createElement(SotLink, { href: data.fileUrl || data.pageUrl || "https://www.cms.gov/medicare/coding-billing/national-correct-coding-initiative-ncci-edits/medicare-ncci-procedure-procedure-ptp-edits", label: "CMS NCCI PTP edit file" }))));
 }
-function CmsCoveragePanel({ code, account, onClose }) {
+function CmsCoveragePanel({ code, account, onClose, dxFromSearch }) {
     const [stateName, setStateName] = useState(() => loadCmsState());
-    const [dx, setDx] = useState("");
+    const [dx, setDx] = useState(dxFromSearch || "");
     const [pairCode, setPairCode] = useState("");
     const [pairKind, setPairKind] = useState("prac");
     const [pairData, setPairData] = useState(null);
@@ -3581,6 +3580,20 @@ function CmsCoveragePanel({ code, account, onClose }) {
     };
     useEffect(() => { setData(null); setPairData(null); setPairError(null); if (signedIn)
         run(asked); }, [code, stateName, signedIn]);
+    // a diagnosis typed in the search row runs alongside the code, once typing settles
+    useEffect(() => {
+        if (dxFromSearch === undefined)
+            return undefined;
+        const t = setTimeout(() => {
+            const want = cleanCode(dxFromSearch);
+            if (want === cleanCode(asked))
+                return;
+            setDx(dxFromSearch || "");
+            if (signedIn && (want.length >= 3 || asked))
+                run(dxFromSearch || "");
+        }, 700);
+        return () => clearTimeout(t);
+    }, [dxFromSearch, code, signedIn]);
     useEffect(() => {
         if (!data || data.code !== code)
             return;
@@ -3637,14 +3650,14 @@ function CmsCoveragePanel({ code, account, onClose }) {
                     { url: "https://www.cms.gov/medicare/payment/fee-schedules/physician/pfs-relative-value-files", label: "Physician Fee Schedule relative value file", note: st && st.fee ? st.fee : "quarterly CMS file" },
                     { url: "https://www.cms.gov/medicare/coding-billing/national-correct-coding-initiative-ncci-edits/medicare-ncci-medically-unlikely-edits-mues", label: "NCCI Medically Unlikely Edits tables", note: st && st.mue ? st.mue : "quarterly CMS file" },
                 ] }),
-            React.createElement(Section, { label: "Check a diagnosis against these policies" },
+            data.verdict && React.createElement("div", { style: { marginTop: 12 } },
+                React.createElement(DxVerdict, { v: data.verdict })),
+            dxFromSearch === undefined && (React.createElement(Section, { label: "Check a diagnosis against these policies" },
                 React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
                     React.createElement("input", { value: dx, onChange: (e) => setDx(e.target.value), onKeyDown: (e) => { if (e.key === "Enter")
                             run(dx); }, placeholder: "ICD-10-CM code, e.g. H35.32", style: { ...inputStyle, flex: "1 1 200px", maxWidth: 280 } }),
                     React.createElement("button", { onClick: () => run(dx), disabled: loading || !cleanCode(dx), style: { background: cleanCode(dx) ? GRAD : "#CBD9DE", color: "#fff", border: "none", borderRadius: 7, padding: "9px 16px", fontSize: 13, fontWeight: 800, cursor: cleanCode(dx) ? "pointer" : "default" } }, loading ? "Checking…" : "Check diagnosis"),
-                    asked && !loading && React.createElement("button", { onClick: () => { setDx(""); run(""); }, style: { background: "transparent", border: "none", color: C.teal, fontWeight: 800, fontSize: 12.5, cursor: "pointer" } }, "Clear")),
-                data.verdict && React.createElement("div", { style: { marginTop: 10 } },
-                    React.createElement(DxVerdict, { v: data.verdict }))),
+                    asked && !loading && React.createElement("button", { onClick: () => { setDx(""); run(""); }, style: { background: "transparent", border: "none", color: C.teal, fontWeight: 800, fontSize: 12.5, cursor: "pointer" } }, "Clear")))),
             React.createElement(Section, { label: `Check bundling with ${code}` },
                 React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } },
                     React.createElement("input", { value: pairCode, onChange: (e) => setPairCode(e.target.value), onKeyDown: (e) => { if (e.key === "Enter")
@@ -6690,6 +6703,7 @@ function App() {
     useEffect(() => { setAiAuth(account); }, [account]);
     const [spec, setSpec] = useState(null);
     const [query, setQuery] = useState("");
+    const [rulesDx, setRulesDx] = useState("");
     const [modQ, setModQ] = useState("");
     const [posQ, setPosQ] = useState("");
     // Re-check a remembered sign-in with the sheet once per visit: a removed,
@@ -6861,9 +6875,12 @@ function App() {
                     " ",
                     allowed.map((c) => (SPECIALTY_CODES.find((x) => x[0] === c) || [c, c])[1]).join(", "),
                     ". Rules that apply to every specialty are shown as well. Contact Purview Healthcare to change this.")),
-                React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 } },
+                React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14, alignItems: "center" } },
                     React.createElement(SpecialtyPicker, { value: spec, onPick: setSpec, allowed: allowed }),
-                    React.createElement("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: "Search a CPT or HCPCS code, modifier, POS, diagnosis or keyword\u2026", style: { ...inputStyle, flex: 1, minWidth: 220 } })),
+                    React.createElement("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: "Search a CPT or HCPCS code, modifier, POS or keyword\u2026", style: { ...inputStyle, flex: "1 1 260px", minWidth: 200 } }),
+                    looksLikeCode(query) && (React.createElement(React.Fragment, null,
+                        React.createElement("span", { style: { fontSize: 12.5, color: C.soft, fontWeight: 700 } }, "with diagnosis"),
+                        React.createElement("input", { value: rulesDx, onChange: (e) => setRulesDx(e.target.value), placeholder: "ICD-10, optional", "aria-label": "Diagnosis to check against the policies", style: { ...inputStyle, flex: "0 1 190px", minWidth: 150 } })))),
                 spec && !specHasCurated && (React.createElement("div", { style: { background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 10, padding: "14px 16px", marginBottom: 14 } },
                     React.createElement("div", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.55 } },
                         "No specialty-specific rules written yet for ",
@@ -6879,7 +6896,7 @@ function App() {
                     React.createElement("button", { onClick: () => setTab("documents"), style: { background: "transparent", border: "none", color: C.teal, fontWeight: 800, fontSize: 13, cursor: "pointer", padding: 0, textDecoration: "underline" } }, "CMS Policies tab"),
                     ".")),
                 !looksLikeDoc(query) && looksLikeCode(query) && (React.createElement("div", { style: { marginBottom: 12 } },
-                    React.createElement(CmsCoveragePanel, { code: cleanCode(query), account: account }))),
+                    React.createElement(CmsCoveragePanel, { code: cleanCode(query), dxFromSearch: rulesDx, account: account }))),
                 React.createElement("div", { id: "astra-rules", style: { display: "grid", gap: 12, scrollMarginTop: 16 } }, filtered.length === 0 && looksLikeDoc(query) ? null : filtered.length === 0 ? (React.createElement("div", { style: { background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 10, padding: 22 } },
                     React.createElement("div", { style: { fontSize: 14, fontWeight: 800, color: C.navy } }, query.trim() ? `No curated rule for "${query.trim()}" yet` : "Nothing in the curated library matches"),
                     React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.55 } }, looksLikeCode(query) ? "The live CMS policy for this code is shown above. For a plain-English rule, ask Astra below." : "Look it up live against current CMS guidance below, or see the CMS sources tab for where a rule like this is published."),
