@@ -5468,6 +5468,7 @@ function AiPanel({ account }) {
         }
         catch (e) {
             setError(friendlyAiError(e));
+            scrollErrorIntoView();
         }
         finally {
             setBusy(false);
@@ -5508,7 +5509,7 @@ function AiPanel({ account }) {
             React.createElement(AiStat, { label: "Service", value: cfg ? (cfg.provider === "groq" ? "Groq" : "Gemini") : "—" }),
             React.createElement(AiStat, { label: "Model", value: cfg ? cfg.model.replace(/^gemini-/, "").replace(/^openai\//, "") : "—" }),
             React.createElement(AiStat, { label: "Web search", value: cfg ? (!cfg.hasSerper ? "No key" : cfg.serperOn ? `${cfg.serperUsedToday} of ${cfg.serperDaily}` : "Off") : "—", tone: cfg && cfg.hasSerper && cfg.serperOn ? C.green : C.soft })),
-        error && (React.createElement("div", { role: "alert", style: { padding: "12px 14px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13.5, color: "#991B1B", lineHeight: 1.55 } }, error)),
+        error && (React.createElement("div", { id: "astra-form-error", role: "alert", style: { padding: "12px 14px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13.5, color: "#991B1B", lineHeight: 1.55 } }, error)),
         note && (React.createElement("div", { role: "status", style: { padding: "12px 14px", background: "#EFFBF4", border: "1px solid #BFE9D2", borderRadius: 10, fontSize: 13.5, color: "#166534" } }, note)),
         form && (React.createElement("div", { className: "astra-orbit", style: card },
             React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "Which service answers"),
