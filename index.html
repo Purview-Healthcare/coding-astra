@@ -5392,11 +5392,12 @@ const AI_MODELS = [
     ["gemini-3.1-flash-lite", "Flash-Lite 3.1 - the earlier lite model"],
     ["gemini-3.8-flash", "Flash 3.8 - stronger answers, costs more"],
 ];
+/* Groq shut down both Llama models on 16 August 2026, so only the GPT-OSS
+   pair is left running. Picking a retired model fails with a model-not-found
+   that reads like a broken key, which is why they are not offered here. */
 const GROQ_MODELS = [
-    ["llama-3.3-70b-versatile", "Llama 3.3 70B - the best all-round answers (recommended)"],
-    ["openai/gpt-oss-120b", "GPT-OSS 120B - strongest reasoning, still fast"],
-    ["openai/gpt-oss-20b", "GPT-OSS 20B - quickest, lighter answers"],
-    ["llama-3.1-8b-instant", "Llama 3.1 8B - fastest and cheapest"],
+    ["openai/gpt-oss-120b", "GPT-OSS 120B - the best all-round answers (recommended)"],
+    ["openai/gpt-oss-20b", "GPT-OSS 20B - quicker and lighter, for simpler questions"],
 ];
 function AiStat({ label, value, tone }) {
     return (React.createElement("div", { className: "astra-orbit", style: {
