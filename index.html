@@ -5512,6 +5512,8 @@ function AiPanel({ account }) {
             serperPaid: ai.serperPaid, fallback: ai.fallback !== false, alertEmail: ai.alertEmail || "",
             groqPaid: ai.groqPaid, geminiDailyFree: ai.geminiCeilingLearned ? "" : (ai.geminiCeiling || ""),
             groqBudget: (ai.groqSpend && ai.groqSpend.budget) || "",
+            groqInPer: (ai.groqSpend && ai.groqSpend.inPer) || "",
+            groqOutPer: (ai.groqSpend && ai.groqSpend.outPer) || "",
             serperPackSize: (ai.serperPack && ai.serperPack.size) || "",
             serperPackDate: (ai.serperPack && ai.serperPack.bought) || "" });
     };
@@ -5746,7 +5748,13 @@ function AiPanel({ account }) {
                         React.createElement("label", { style: label, htmlFor: "astra-groq-budget" }, "Budget a month, dollars"),
                         React.createElement("input", { id: "astra-groq-budget", type: "number", min: "0", step: "1", value: form.groqBudget, onChange: (e) => setForm({ ...form, groqBudget: e.target.value }), placeholder: "0 for none", style: { ...field, width: "100%", boxSizing: "border-box" } })),
                     React.createElement("button", { onClick: () => save(), disabled: busy, style: primary(!busy) }, busy ? "Saving…" : "Save"),
-                    React.createElement("span", { style: { fontSize: 12, color: C.soft, flex: "1 1 220px", lineHeight: 1.5 } }, "An email at half, four fifths and all of it. Each once a month."))),
+                    React.createElement("div", { style: { flex: "0 1 130px" } },
+                        React.createElement("label", { style: label, htmlFor: "astra-groq-in" }, "$ per million in"),
+                        React.createElement("input", { id: "astra-groq-in", type: "number", min: "0", step: "0.01", value: form.groqInPer, onChange: (e) => setForm({ ...form, groqInPer: e.target.value }), style: { ...field, width: "100%", boxSizing: "border-box" } })),
+                    React.createElement("div", { style: { flex: "0 1 130px" } },
+                        React.createElement("label", { style: label, htmlFor: "astra-groq-out" }, "$ per million out"),
+                        React.createElement("input", { id: "astra-groq-out", type: "number", min: "0", step: "0.01", value: form.groqOutPer, onChange: (e) => setForm({ ...form, groqOutPer: e.target.value }), style: { ...field, width: "100%", boxSizing: "border-box" } })),
+                    React.createElement("span", { style: { fontSize: 12, color: C.soft, flex: "1 1 100%", lineHeight: 1.5 } }, "An email at half, four fifths and all of the budget, each once a month. The rates are what the cost is worked out from, so correct them if Groq changes its prices, otherwise the figure above drifts without saying so. Your real invoice is always at console.groq.com."))),
             React.createElement("div", { style: { marginTop: 12, padding: "12px 14px", borderRadius: 9, background: "#F5F7F9", border: `1px solid ${C.line}` } },
                 cfg.serperPack && cfg.serperPack.size ? (React.createElement(React.Fragment, null,
                     React.createElement("div", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.6 } },
