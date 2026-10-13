@@ -5526,6 +5526,12 @@ function AiPanel({ account }) {
     const known = form && AI_MODELS.some((m) => m[0] === form.model);
     const state = !cfg ? "…" : !cfg.hasKey ? "No key yet" : cfg.off ? "Switched off" : "On";
     const tone = !cfg || !cfg.hasKey ? C.warn : cfg.off ? C.soft : C.green;
+    /* Which script build the deployment is really serving. A deployment keeps
+       whatever version it was published with, so pasting new code into the
+       editor changes nothing until a new version goes out. Reading it here
+       turns that into something visible instead of something to guess at. */
+    const backend = cfg ? (cfg.build || "older than r12") : "…";
+    const backendOld = !!cfg && !cfg.build;
     return (React.createElement("div", { style: { display: "grid", gap: 14 } },
         React.createElement("div", { style: { display: "flex", gap: 12, flexWrap: "wrap" } },
             React.createElement(AiStat, { label: "AI", value: state, tone: tone }),
@@ -5534,6 +5540,15 @@ function AiPanel({ account }) {
             React.createElement(AiStat, { label: "Service", value: cfg ? (cfg.provider === "groq" ? "Groq" : "Gemini") : "—" }),
             React.createElement(AiStat, { label: "Model", value: cfg ? cfg.model.replace(/^gemini-/, "").replace(/^openai\//, "") : "—" }),
             React.createElement(AiStat, { label: "Web search", value: cfg ? (!cfg.hasSerper ? "No key" : cfg.serperOn ? `${cfg.serperUsedToday} of ${cfg.serperDaily}` : "Off") : "—", tone: cfg && cfg.hasSerper && cfg.serperOn ? C.green : C.soft })),
+        React.createElement("div", { style: {
+                padding: "10px 14px", borderRadius: 9, fontSize: 13, lineHeight: 1.55,
+                background: backendOld ? "#FFF7ED" : "#F5F7F9",
+                border: `1px solid ${backendOld ? "#FDBA74" : C.line}`, color: backendOld ? "#9A3412" : C.soft,
+            } },
+            React.createElement("b", { style: { color: backendOld ? "#9A3412" : C.ink } },
+                "Backend answering: ",
+                backend),
+            backendOld && ". This deployment is still serving older code. Paste the latest script in the editor, then Deploy, Manage deployments, the pencil icon, Version: New version, Deploy."),
         error && (React.createElement("div", { id: "astra-form-error", role: "alert", style: { padding: "12px 14px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13.5, color: "#991B1B", lineHeight: 1.55 } }, error)),
         note && (React.createElement("div", { role: "status", style: { padding: "12px 14px", background: "#EFFBF4", border: "1px solid #BFE9D2", borderRadius: 10, fontSize: 13.5, color: "#166534" } }, note)),
         form && (React.createElement("div", { className: "astra-orbit", style: card },
