@@ -5406,6 +5406,26 @@ function AiStat({ label, value, tone }) {
         React.createElement("div", { style: { fontSize: 11.5, fontWeight: 800, color: C.soft, letterSpacing: 0.3, textTransform: "uppercase" } }, label),
         React.createElement("div", { style: { fontSize: 22, fontWeight: 900, color: C.navy, marginTop: 4 } }, value)));
 }
+/* The result of a connection test, shown directly under the button that ran
+   it. "which" is the test this slot belongs to, so only its own result lands
+   here and the other cards stay quiet. */
+function TestNote({ test, which }) {
+    if (!test || test.what !== which)
+        return null;
+    const head = !test.ok
+        ? "That didn't work:"
+        : test.serper
+            ? "Search works:"
+            : `It works. ${test.provider === "groq" ? "Groq" : "Gemini"} (${test.model}) answered${test.sources ? `, using ${test.sources} live result${test.sources === 1 ? "" : "s"}` : ", with no live search"}:`;
+    return (React.createElement("div", { role: "status", style: {
+            marginTop: 12, padding: "12px 14px", borderRadius: 8, fontSize: 13.5, lineHeight: 1.6,
+            background: test.ok ? "#EFFBF4" : "#FEF2F2",
+            border: `1px solid ${test.ok ? "#BFE9D2" : "#FECACA"}`,
+            color: test.ok ? "#166534" : "#991B1B",
+        } },
+        React.createElement("b", null, head),
+        React.createElement("div", { style: { marginTop: 6, color: C.ink, wordBreak: "break-word" } }, test.text)));
+}
 function AiPanel({ account }) {
     const [cfg, setCfg] = useState(null);
     const [form, setForm] = useState(null);
@@ -5474,17 +5494,22 @@ function AiPanel({ account }) {
             setBusy(false);
         }
     };
+    /* The answer appears under whichever button was pressed, so the name of the
+       test travels with the result. Without it a search test printed its answer
+       inside the Google AI card at the bottom of the page, far below the button,
+       and looked like nothing had happened. */
     const runTest = async (what) => {
-        setTesting(true);
+        const which = what || "model";
+        setTesting(which);
         setError(null);
         setNote(null);
         setTest(null);
         try {
             const r = await callSheet("aiTest", { ...creds, what: what || "" });
-            setTest({ ok: true, text: r.text, model: r.model, provider: r.provider, sources: r.sources, serper: r.serper });
+            setTest({ ok: true, what: which, text: r.text, model: r.model, provider: r.provider, sources: r.sources, serper: r.serper });
         }
         catch (e) {
-            setTest({ ok: false, text: friendlyAiError(e) });
+            setTest({ ok: false, what: which, text: friendlyAiError(e) });
         }
         finally {
             setTesting(false);
@@ -5535,7 +5560,8 @@ function AiPanel({ account }) {
                     React.createElement("label", { style: label, htmlFor: "astra-serper-daily" }, "Searches a day"),
                     React.createElement("input", { id: "astra-serper-daily", type: "number", min: "1", max: "2500", value: form.serperDaily, onChange: (e) => setForm({ ...form, serperDaily: e.target.value }), style: { ...field, width: "100%", boxSizing: "border-box" } })),
                 React.createElement("button", { onClick: () => save(), disabled: busy, style: primary(!busy) }, busy ? "Saving…" : "Save"),
-                React.createElement("button", { onClick: () => runTest("serper"), disabled: testing || !cfg || !cfg.hasSerper, style: { ...ghost, opacity: cfg && cfg.hasSerper ? 1 : 0.5 } }, testing ? "Searching…" : "Test search")),
+                React.createElement("button", { onClick: () => runTest("serper"), disabled: !!testing || !cfg || !cfg.hasSerper, style: { ...ghost, opacity: cfg && cfg.hasSerper ? 1 : 0.5 } }, testing === "serper" ? "Searching…" : "Test search")),
+            React.createElement(TestNote, { test: test, which: "serper" }),
             cfg && cfg.hasSerper && (React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12, fontSize: 13, color: C.soft } },
                 React.createElement("span", null,
                     "Key on file: ",
@@ -5563,12 +5589,14 @@ function AiPanel({ account }) {
                 form && (React.createElement("div", { style: { flex: "1 1 260px" } },
                     React.createElement("label", { style: label, htmlFor: "astra-groq-model" }, "Groq model"),
                     React.createElement("select", { id: "astra-groq-model", value: form.groqModel, onChange: (e) => setForm({ ...form, groqModel: e.target.value }), style: { ...field, width: "100%", boxSizing: "border-box" } }, GROQ_MODELS.map(([id, name]) => React.createElement("option", { key: id, value: id }, name))))),
-                React.createElement("button", { onClick: () => save(), disabled: busy, style: primary(!busy) }, busy ? "Saving…" : "Save")),
+                React.createElement("button", { onClick: () => save(), disabled: busy, style: primary(!busy) }, busy ? "Saving…" : "Save"),
+                React.createElement("button", { onClick: () => runTest("groq"), disabled: !!testing || !cfg || !cfg.hasGroq, style: { ...ghost, opacity: cfg && cfg.hasGroq ? 1 : 0.5 } }, testing === "groq" ? "Asking…" : "Test Groq")),
             cfg && cfg.hasGroq && (React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12, fontSize: 13, color: C.soft } },
                 React.createElement("span", null,
                     "Key on file: ",
                     React.createElement("b", { style: { color: C.ink, letterSpacing: 1 } }, cfg.groqHint)),
-                React.createElement("button", { onClick: () => save({ clearGroqKey: true }), disabled: busy, style: { background: "transparent", border: "none", color: C.soft, fontSize: 13, fontWeight: 700, cursor: "pointer", textDecoration: "underline", padding: 0 } }, "Remove key")))),
+                React.createElement("button", { onClick: () => save({ clearGroqKey: true }), disabled: busy, style: { background: "transparent", border: "none", color: C.soft, fontSize: 13, fontWeight: 700, cursor: "pointer", textDecoration: "underline", padding: 0 } }, "Remove key"))),
+            React.createElement(TestNote, { test: test, which: "groq" })),
         React.createElement("div", { className: "astra-orbit", style: card },
             React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "Google AI key"),
             React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.6 } },
@@ -5616,19 +5644,8 @@ function AiPanel({ account }) {
             React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", alignItems: "center" } },
                 React.createElement("button", { onClick: () => save(), disabled: busy, style: primary(!busy) }, busy ? "Saving…" : "Save settings"),
                 React.createElement("button", { onClick: load, disabled: busy, style: ghost }, "Refresh"),
-                React.createElement("button", { onClick: () => runTest(), disabled: testing || !cfg || !cfg.hasKey, style: { ...ghost, opacity: cfg && cfg.hasKey ? 1 : 0.5 } }, testing ? "Asking…" : "Test it")),
-            test && (React.createElement("div", { style: {
-                    marginTop: 12, padding: "12px 14px", borderRadius: 8, fontSize: 13.5, lineHeight: 1.6,
-                    background: test.ok ? "#EFFBF4" : "#FEF2F2",
-                    border: `1px solid ${test.ok ? "#BFE9D2" : "#FECACA"}`,
-                    color: test.ok ? "#166534" : "#991B1B",
-                } },
-                React.createElement("b", null, test.ok
-                    ? (test.serper
-                        ? "Search works:"
-                        : `It works. ${test.provider === "groq" ? "Groq" : "Gemini"} (${test.model}) answered${test.sources ? `, using ${test.sources} live result${test.sources === 1 ? "" : "s"}` : ", with no live search"}:`)
-                    : "That didn't work:"),
-                React.createElement("div", { style: { marginTop: 6, color: C.ink } }, test.text))))),
+                React.createElement("button", { onClick: () => runTest(), disabled: !!testing || !cfg || !cfg.hasKey, style: { ...ghost, opacity: cfg && cfg.hasKey ? 1 : 0.5 } }, testing === "model" ? "Asking…" : "Test it")),
+            React.createElement(TestNote, { test: test, which: "model" }))),
         React.createElement("div", { style: { ...card, background: C.paleTeal, border: "1px solid #BFE5E5" } },
             React.createElement("div", { style: { fontSize: 14, fontWeight: 900, color: C.navy } }, "Where people see the AI"),
             React.createElement("ul", { style: { margin: "8px 0 0 18px", padding: 0, fontSize: 13.5, color: C.ink, lineHeight: 1.7 } },
