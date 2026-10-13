@@ -2471,8 +2471,18 @@ async function aiViaSheet(payload) {
     const text = String((data && data.text) || "").trim();
     if (!text)
         throw new Error("no answer came back — try rephrasing");
+    /* Which service actually wrote it, kept for the caller to read straight
+       after awaiting. Returning it properly would change what every caller
+       expects back, and they all want the text. */
+    aiViaSheet.last = {
+        provider: (data && data.provider) || "",
+        fellBack: !!(data && data.fellBack),
+        model: (data && data.model) || "",
+        sources: (data && data.sources) || 0,
+    };
     return text;
 }
+aiViaSheet.last = null;
 function extractJson(raw) {
     const clean = raw.replace(/```json|```/g, "").trim();
     const start = clean.indexOf("{");
@@ -5593,6 +5603,7 @@ function AiPanel({ account }) {
             React.createElement(AiStat, { label: "AI", value: state, tone: tone }),
             React.createElement(AiStat, { label: "Answers today", value: cfg ? (cfg.daily > 0 ? `${cfg.usedToday} of ${cfg.daily}` : `${cfg.usedToday}, no limit`) : "—" }),
             React.createElement(AiStat, { label: "People who asked", value: cfg ? cfg.peopleToday : "—" }),
+            React.createElement(AiStat, { label: "Handovers today", value: cfg ? (cfg.handoversToday || 0) : "—", tone: cfg && cfg.handoversToday > 0 ? "#D97706" : C.soft }),
             React.createElement(AiStat, { label: "Service", value: cfg ? (cfg.provider === "groq" ? "Groq" : "Gemini") : "—" }),
             React.createElement(AiStat, { label: "Model", value: cfg ? cfg.model.replace(/^gemini-/, "").replace(/^openai\//, "") : "—" }),
             React.createElement(AiStat, { label: "Web search", value: cfg ? (!cfg.hasSerper ? "No key" : !cfg.serperOn ? "Off" : `${cfg.serperUsedToday} today`) : "—", tone: cfg && cfg.hasSerper && cfg.serperOn ? C.green : C.soft }),
@@ -6866,7 +6877,13 @@ function AskMePanel() {
         setBusy(true);
         try {
             const reply = await chatWithAstra(history);
-            setMessages([...history, { role: "assistant", content: reply }]);
+            const meta = aiViaSheet.last;
+            setMessages([...history, {
+                    role: "assistant", content: reply,
+                    /* Shown under the answer when the first service was out, so the day
+                       the free tier stops being enough is visible as it happens. */
+                    via: meta && meta.fellBack ? (meta.provider === "groq" ? "groq" : "gemini") : "",
+                }]);
         }
         catch (e) {
             setError(friendlyAiError(e));
@@ -6895,7 +6912,10 @@ function AskMePanel() {
                             color: C.ink,
                         } },
                         m.role === "assistant" && (React.createElement("div", { style: { fontSize: 10.5, fontWeight: 900, color: C.teal, letterSpacing: 0.4, marginBottom: 6 } }, "ASTRA")),
-                        m.role === "assistant" ? React.createElement(RichText, { text: m.content }) : m.content)))),
+                        m.role === "assistant" ? React.createElement(RichText, { text: m.content }) : m.content,
+                        m.via && (React.createElement("div", { style: { marginTop: 10, paddingTop: 8, borderTop: `1px solid ${C.line}`, fontSize: 11.5, color: C.soft, lineHeight: 1.5 } }, m.via === "groq"
+                            ? "Gemini had no free capacity left today, so Groq answered this one with a live web search behind it. Gemini comes back tomorrow."
+                            : "Groq had no free capacity left today, so Gemini answered this one. Groq comes back tomorrow.")))))),
                 busy && (React.createElement("div", { style: { padding: "12px 14px", background: "#F0FAFB", border: `1px dashed ${C.cyan}`, borderRadius: 10, fontSize: 13.5, color: C.ink, maxWidth: "86%" } }, "Searching CMS and putting an answer together\u2026")),
                 error && (React.createElement("div", { id: "astra-form-error", style: { padding: "12px 14px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13.5, color: "#991B1B" } }, error)),
                 React.createElement("div", { ref: endRef })),
