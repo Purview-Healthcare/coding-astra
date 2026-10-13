@@ -6454,7 +6454,10 @@ function ChangePassword({ account, onClose, onChanged }) {
                         borderRadius: 8, padding: "12px 18px", fontSize: 14.5, fontWeight: 800, cursor: busy ? "wait" : "pointer",
                     } }, busy ? "Saving…" : "Change password")))))));
 }
-function AskMeBot() {
+/* isAdmin only decides whether the service-handover line is shown. Which
+   service answered is running information for whoever manages the keys, not
+   something a biller asking about a code needs to see. */
+function AskMeBot({ isAdmin }) {
     const [open, setOpen] = useState(false);
     const [spot, setSpot] = useState(null); // null until dragged
     const drag = useRef(null);
@@ -6537,7 +6540,7 @@ function AskMeBot() {
                 React.createElement("span", { style: { fontSize: 15, fontWeight: 900, flex: 1 } }, "Ask Me"),
                 React.createElement("button", { onClick: () => setOpen(false), "aria-label": "Close", style: { background: "rgba(255,255,255,.18)", border: "none", color: "#fff", width: 26, height: 26, borderRadius: 6, cursor: "pointer", fontSize: 15, fontWeight: 900, lineHeight: 1 } }, "\u00D7")),
             React.createElement("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } },
-                React.createElement(AskMePanel, null)))),
+                React.createElement(AskMePanel, { isAdmin: isAdmin })))),
         React.createElement("button", { onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, "aria-label": "Ask Me \u2014 coding assistant", className: "astra-pulse astra-orbit-light", style: {
                 position: "fixed", zIndex: 9999, width: 56, height: 56, borderRadius: 28,
                 background: GRAD, border: "none", cursor: drag.current ? "grabbing" : "grab",
@@ -6846,7 +6849,7 @@ function FeedbackTab({ tab }) {
                 error && React.createElement("div", { role: "alert", style: { marginTop: 9, fontSize: 12, color: "#991B1B" } }, error),
                 React.createElement("div", { style: { marginTop: 11, fontSize: 11.5, color: C.soft, lineHeight: 1.6 } }, "Your name and which tab you were on are sent with it. Never include patient details.")))))));
 }
-function AskMePanel() {
+function AskMePanel({ isAdmin }) {
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState("");
     const [busy, setBusy] = useState(false);
@@ -6913,7 +6916,7 @@ function AskMePanel() {
                         } },
                         m.role === "assistant" && (React.createElement("div", { style: { fontSize: 10.5, fontWeight: 900, color: C.teal, letterSpacing: 0.4, marginBottom: 6 } }, "ASTRA")),
                         m.role === "assistant" ? React.createElement(RichText, { text: m.content }) : m.content,
-                        m.via && (React.createElement("div", { style: { marginTop: 10, paddingTop: 8, borderTop: `1px solid ${C.line}`, fontSize: 11.5, color: C.soft, lineHeight: 1.5 } }, m.via === "groq"
+                        m.via && isAdmin && (React.createElement("div", { style: { marginTop: 10, paddingTop: 8, borderTop: `1px solid ${C.line}`, fontSize: 11.5, color: C.soft, lineHeight: 1.5 } }, m.via === "groq"
                             ? "Gemini had no free capacity left today, so Groq answered this one with a live web search behind it. Gemini comes back tomorrow."
                             : "Groq had no free capacity left today, so Gemini answered this one. Groq comes back tomorrow.")))))),
                 busy && (React.createElement("div", { style: { padding: "12px 14px", background: "#F0FAFB", border: `1px dashed ${C.cyan}`, borderRadius: 10, fontSize: 13.5, color: C.ink, maxWidth: "86%" } }, "Searching CMS and putting an answer together\u2026")),
@@ -7216,7 +7219,7 @@ function App() {
             tab === "admin" && isAdmin && React.createElement(AdminPanel, { account: account }),
             tab === "ai" && isAdmin && React.createElement(AiPanel, { account: account })),
         showChangePw && account && (React.createElement(ChangePassword, { account: account, onClose: () => setShowChangePw(false), onChanged: onPasswordChanged })),
-        React.createElement(AskMeBot, null),
+        React.createElement(AskMeBot, { isAdmin: isAdmin }),
         React.createElement(FeedbackTab, { tab: tab })));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
