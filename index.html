@@ -2412,7 +2412,61 @@ function aiNoIdentity() {
     e.code = "SESSION_ENDED";
     return e;
 }
+/* ============================================================
+   PATIENT DETAILS NEVER LEAVE THE APP
+   ------------------------------------------------------------
+   Questions go to Google or Groq, who sit outside Purview. Google's
+   terms for the unpaid tier say not to send personal information
+   and that human reviewers may read what is sent. So anything that
+   looks like it identifies a patient is stopped here, before the
+   question leaves the browser. The script checks again at its end,
+   so this is the convenience, not the control.
+
+   The patterns are deliberately narrow, because this app exists to
+   discuss CPT, HCPCS, ICD-10 and article numbers: 92134, A4554,
+   H40.11, A56451 and L34567 all pass untouched. What gets stopped
+   is a labelled identifier, a social security number, a Medicare
+   beneficiary identifier, a long account-style digit run, an email
+   address or a phone number.
+   ============================================================ */
+const PHI_RULES = [
+    ["a social security number", /\b\d{3}-\d{2}-\d{4}\b/],
+    ["a Medicare beneficiary identifier", /\b[1-9][ACDEFGHJKMNPQRTUVWXY][ACDEFGHJKMNPQRTUVWXY0-9]\d[ACDEFGHJKMNPQRTUVWXY][ACDEFGHJKMNPQRTUVWXY0-9]\d[ACDEFGHJKMNPQRTUVWXY]{2}\d{2}\b/i],
+    ["a date of birth", /\b(d\.?o\.?b\.?|date of birth|birth ?date|born on)\b/i],
+    ["a medical record number", /\b(mrn|medical record (number|no|#)|chart (number|no|#)|account (number|#))\b/i],
+    ["a member or subscriber number", /\b(member|subscriber|policy|group|insured|hicn|mbi|medicaid|beneficiary)\s*(id|i\.d\.|number|no\.?|#)\b/i],
+    ["a patient name", /\b(patient|member|subscriber)\s*(name|first name|last name|full name)\b/i],
+    ["a social security number", /\b(ssn|social security)\b/i],
+    ["an email address", /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/],
+    ["a phone number", /(\(\d{3}\)\s*|\b\d{3}[.\-\s])\d{3}[.\-\s]\d{4}\b/],
+    ["an account or claim number", /\b\d{9,}\b/],
+];
+/* What is wrong with this text, or an empty string if nothing is. */
+function phiReason(text) {
+    const t = String(text == null ? "" : text);
+    if (!t)
+        return "";
+    for (const [what, re] of PHI_RULES)
+        if (re.test(t))
+            return what;
+    return "";
+}
+function phiError(what) {
+    const e = new Error(`That looks like it contains ${what}. Patient details can't go to the AI, which runs outside Purview. ` +
+        `Ask about the code, the policy or the rule instead, with nothing that identifies a person.`);
+    e.code = "AI_PHI";
+    return e;
+}
 async function aiViaSheet(payload) {
+    /* Every AI route in the app passes through here, so one check covers
+       the bot and anything else that asks a question. */
+    const typed = [
+        ...(Array.isArray(payload.messages) ? payload.messages.filter((m) => m && m.role !== "assistant").map((m) => m.content || "") : []),
+        payload.question || "", payload.q || "",
+    ].join("\n");
+    const bad = phiReason(typed);
+    if (bad)
+        throw phiError(bad);
     const data = await callSheet("aiAsk", { ...payload, ...(AI_AUTH || {}) });
     const text = String((data && data.text) || "").trim();
     if (!text)
@@ -6787,6 +6841,9 @@ function AskMePanel() {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     const endRef = useRef(null);
+    /* Checked as it is typed, so the warning appears before Send is pressed
+       rather than after the question has been refused. */
+    const typedRisk = useMemo(() => phiReason(input), [input]);
     useEffect(() => {
         // Guarded: if this throws, the whole chat unmounts. Not every
         // browser or embedded webview implements scrollIntoView.
@@ -6842,22 +6899,39 @@ function AskMePanel() {
                 busy && (React.createElement("div", { style: { padding: "12px 14px", background: "#F0FAFB", border: `1px dashed ${C.cyan}`, borderRadius: 10, fontSize: 13.5, color: C.ink, maxWidth: "86%" } }, "Searching CMS and putting an answer together\u2026")),
                 error && (React.createElement("div", { id: "astra-form-error", style: { padding: "12px 14px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13.5, color: "#991B1B" } }, error)),
                 React.createElement("div", { ref: endRef })),
+            typedRisk && (React.createElement("div", { role: "alert", style: {
+                    borderTop: "1px solid #FECACA", background: "#FEF2F2", padding: "11px 14px",
+                    fontSize: 13, color: "#991B1B", lineHeight: 1.55,
+                } },
+                React.createElement("b", null,
+                    "That looks like ",
+                    typedRisk,
+                    "."),
+                " Take it out before sending. The AI runs outside Purview, so nothing that identifies a patient can go to it. Ask about the code, the policy or the rule instead.")),
+            React.createElement("div", { style: {
+                    borderTop: `1px solid ${C.line}`, background: C.paleTeal, padding: "10px 14px",
+                    fontSize: 12.5, color: C.ink, lineHeight: 1.55, display: "flex", gap: 8, alignItems: "flex-start",
+                } },
+                React.createElement("span", { "aria-hidden": "true", style: { fontSize: 14, lineHeight: 1.3 } }, "\uD83D\uDD12"),
+                React.createElement("span", null,
+                    React.createElement("b", null, "No patient details."),
+                    " Questions here are answered by Google and Groq, outside Purview. Never type a name, date of birth, member ID, claim number or anything else that identifies a person. Codes, policies and denial reasons are fine.")),
             React.createElement("div", { style: { borderTop: `1px solid ${C.line}`, padding: 14, display: "flex", gap: 10, flexWrap: "wrap" } },
                 React.createElement(MicButton, { onText: setInput, onInterim: setInput, disabled: busy }),
                 React.createElement("input", { value: input, onChange: (e) => setInput(e.target.value), onKeyDown: (e) => { if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         send();
                     } }, placeholder: SPEECH_API ? "Type your question, or tap the mic to speak it…" : "Ask about a code, a modifier, a denial…", disabled: busy, style: { flex: "1 1 240px", padding: "11px 13px", fontSize: 14, border: `1.5px solid ${C.line}`, borderRadius: 8, color: C.ink, outline: "none" } }),
-                React.createElement("button", { onClick: () => send(), disabled: busy || !input.trim(), style: {
-                        background: busy || !input.trim() ? "#CBD9DE" : GRAD, color: "#fff", border: "none",
+                React.createElement("button", { onClick: () => send(), disabled: busy || !input.trim() || !!typedRisk, style: {
+                        background: busy || !input.trim() || typedRisk ? "#CBD9DE" : GRAD, color: "#fff", border: "none",
                         borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 800,
-                        cursor: busy || !input.trim() ? "default" : "pointer",
+                        cursor: busy || !input.trim() || typedRisk ? "default" : "pointer",
                     } }, busy ? "Thinking…" : "Send"),
                 messages.length > 0 && (React.createElement("button", { onClick: () => { setMessages([]); setError(null); }, style: {
                         background: "transparent", border: "none", color: C.soft, fontSize: 13,
                         fontWeight: 700, cursor: "pointer",
                     } }, "Clear")))),
-        React.createElement("div", { style: { fontSize: 11, color: C.soft, lineHeight: 1.6, padding: "0 16px 14px" } }, "An assistant, not a compliance sign-off. Check anything that carries real money against the CMS source it names. Never type or speak patient identifiers.")));
+        React.createElement("div", { style: { fontSize: 11, color: C.soft, lineHeight: 1.6, padding: "0 16px 14px" } }, "An assistant, not a compliance sign-off. Check anything that carries real money against the CMS source it names.")));
 }
 /* ============================================================
    APP
