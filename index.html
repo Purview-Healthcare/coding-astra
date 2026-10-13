@@ -5388,9 +5388,15 @@ function fmtDay(iso) {
     }
 }
 const AI_MODELS = [
-    ["gemini-3.5-flash-lite", "Flash-Lite 3.5 — fastest and cheapest (recommended)"],
-    ["gemini-3.1-flash-lite", "Flash-Lite 3.1 — the earlier lite model"],
-    ["gemini-3.8-flash", "Flash 3.8 — stronger answers, costs more"],
+    ["gemini-3.5-flash-lite", "Flash-Lite 3.5 - fastest and cheapest (recommended)"],
+    ["gemini-3.1-flash-lite", "Flash-Lite 3.1 - the earlier lite model"],
+    ["gemini-3.8-flash", "Flash 3.8 - stronger answers, costs more"],
+];
+const GROQ_MODELS = [
+    ["llama-3.3-70b-versatile", "Llama 3.3 70B - the best all-round answers (recommended)"],
+    ["openai/gpt-oss-120b", "GPT-OSS 120B - strongest reasoning, still fast"],
+    ["openai/gpt-oss-20b", "GPT-OSS 20B - quickest, lighter answers"],
+    ["llama-3.1-8b-instant", "Llama 3.1 8B - fastest and cheapest"],
 ];
 function AiStat({ label, value, tone }) {
     return (React.createElement("div", { className: "astra-orbit", style: {
@@ -5404,6 +5410,8 @@ function AiPanel({ account }) {
     const [cfg, setCfg] = useState(null);
     const [form, setForm] = useState(null);
     const [key, setKey] = useState("");
+    const [groqKey, setGroqKey] = useState("");
+    const [serperKey, setSerperKey] = useState("");
     const [busy, setBusy] = useState(false);
     const [testing, setTesting] = useState(false);
     const [error, setError] = useState(null);
@@ -5413,7 +5421,9 @@ function AiPanel({ account }) {
     const creds = { email: account.email, password: account.pw };
     const apply = (ai) => {
         setCfg(ai);
-        setForm({ model: ai.model, daily: ai.daily, perUser: ai.perUser, search: ai.search, off: ai.off });
+        setForm({ model: ai.geminiModel || ai.model, groqModel: ai.groqModel, provider: ai.provider || "gemini",
+            daily: ai.daily, perUser: ai.perUser, search: ai.search, off: ai.off,
+            serperOn: ai.serperOn, serperDaily: ai.serperDaily });
     };
     const load = async () => {
         setBusy(true);
@@ -5441,8 +5451,14 @@ function AiPanel({ account }) {
             const body = { ...creds, ...form, ...(extra || {}) };
             if (hadKey && !(extra && extra.clearKey))
                 body.key = key.trim();
+            if (groqKey.trim() && !(extra && extra.clearGroqKey))
+                body.groqKey = groqKey.trim();
+            if (serperKey.trim() && !(extra && extra.clearSerperKey))
+                body.serperKey = serperKey.trim();
             apply((await callSheet("aiSave", body)).ai);
             setKey("");
+            setGroqKey("");
+            setSerperKey("");
             setConfirmClear(false);
             setNote(extra && extra.clearKey
                 ? "Key removed. AI is off until a new one is added."
@@ -5457,14 +5473,14 @@ function AiPanel({ account }) {
             setBusy(false);
         }
     };
-    const runTest = async () => {
+    const runTest = async (what) => {
         setTesting(true);
         setError(null);
         setNote(null);
         setTest(null);
         try {
-            const r = await callSheet("aiTest", creds);
-            setTest({ ok: true, text: r.text, model: r.model });
+            const r = await callSheet("aiTest", { ...creds, what: what || "" });
+            setTest({ ok: true, text: r.text, model: r.model, provider: r.provider, sources: r.sources, serper: r.serper });
         }
         catch (e) {
             setTest({ ok: false, text: friendlyAiError(e) });
@@ -5489,9 +5505,69 @@ function AiPanel({ account }) {
             React.createElement(AiStat, { label: "AI", value: state, tone: tone }),
             React.createElement(AiStat, { label: "Answers today", value: cfg ? `${cfg.usedToday} of ${cfg.daily}` : "—" }),
             React.createElement(AiStat, { label: "People who asked", value: cfg ? cfg.peopleToday : "—" }),
-            React.createElement(AiStat, { label: "Model", value: cfg ? cfg.model.replace(/^gemini-/, "") : "—" })),
+            React.createElement(AiStat, { label: "Service", value: cfg ? (cfg.provider === "groq" ? "Groq" : "Gemini") : "—" }),
+            React.createElement(AiStat, { label: "Model", value: cfg ? cfg.model.replace(/^gemini-/, "").replace(/^openai\//, "") : "—" }),
+            React.createElement(AiStat, { label: "Web search", value: cfg ? (!cfg.hasSerper ? "No key" : cfg.serperOn ? `${cfg.serperUsedToday} of ${cfg.serperDaily}` : "Off") : "—", tone: cfg && cfg.hasSerper && cfg.serperOn ? C.green : C.soft })),
         error && (React.createElement("div", { role: "alert", style: { padding: "12px 14px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13.5, color: "#991B1B", lineHeight: 1.55 } }, error)),
         note && (React.createElement("div", { role: "status", style: { padding: "12px 14px", background: "#EFFBF4", border: "1px solid #BFE9D2", borderRadius: 10, fontSize: 13.5, color: "#166534" } }, note)),
+        form && (React.createElement("div", { className: "astra-orbit", style: card },
+            React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "Which service answers"),
+            React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.6 } }, "Both can be set up at once. Only the one selected here is used, so you can switch without pasting keys again."),
+            React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 } }, [["gemini", "Google Gemini", cfg && cfg.hasGemini], ["groq", "Groq", cfg && cfg.hasGroq]].map(([id, name, ready]) => (React.createElement("button", { key: id, onClick: () => save({ provider: id }), disabled: busy, "aria-pressed": form.provider === id, style: {
+                    background: form.provider === id ? GRAD : "#fff", color: form.provider === id ? "#fff" : C.navy,
+                    border: form.provider === id ? "none" : `1.5px solid ${C.line}`, borderRadius: 999,
+                    padding: "9px 18px", fontSize: 13.5, fontWeight: 800, cursor: busy ? "wait" : "pointer",
+                } },
+                name,
+                ready ? "" : " (no key yet)")))))),
+        form && (React.createElement("div", { className: "astra-orbit", style: card },
+            React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "Live web search (Serper)"),
+            React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.6 } },
+                "Searches the web before each answer and hands the model the real pages it found, so answers carry working links instead of a remembered citation. Get a key at ",
+                React.createElement("a", { href: "https://serper.dev", target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 700 } }, "serper.dev \u2197"),
+                ". The free allowance is 2,500 searches in total, so the daily cap below protects it."),
+            React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap", alignItems: "flex-end" } },
+                React.createElement("div", { style: { flex: "1 1 280px" } },
+                    React.createElement("label", { style: label, htmlFor: "astra-serper-key" }, cfg && cfg.hasSerper ? "Replace the Serper key" : "Paste the Serper key"),
+                    React.createElement("input", { id: "astra-serper-key", type: "password", value: serperKey, autoComplete: "off", spellCheck: false, onChange: (e) => { setSerperKey(e.target.value); setNote(null); }, style: { ...field, width: "100%", boxSizing: "border-box" } })),
+                React.createElement("div", { style: { flex: "0 1 150px" } },
+                    React.createElement("label", { style: label, htmlFor: "astra-serper-daily" }, "Searches a day"),
+                    React.createElement("input", { id: "astra-serper-daily", type: "number", min: "1", max: "2500", value: form.serperDaily, onChange: (e) => setForm({ ...form, serperDaily: e.target.value }), style: { ...field, width: "100%", boxSizing: "border-box" } })),
+                React.createElement("button", { onClick: () => save(), disabled: busy, style: primary(!busy) }, busy ? "Saving…" : "Save"),
+                React.createElement("button", { onClick: () => runTest("serper"), disabled: testing || !cfg || !cfg.hasSerper, style: { ...ghost, opacity: cfg && cfg.hasSerper ? 1 : 0.5 } }, testing ? "Searching…" : "Test search")),
+            cfg && cfg.hasSerper && (React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12, fontSize: 13, color: C.soft } },
+                React.createElement("span", null,
+                    "Key on file: ",
+                    React.createElement("b", { style: { color: C.ink, letterSpacing: 1 } }, cfg.serperHint)),
+                React.createElement("span", null,
+                    "Used today: ",
+                    React.createElement("b", { style: { color: C.ink } },
+                        cfg.serperUsedToday,
+                        " of ",
+                        cfg.serperDaily)),
+                React.createElement("button", { onClick: () => save({ clearSerperKey: true }), disabled: busy, style: { background: "transparent", border: "none", color: C.soft, fontSize: 13, fontWeight: 700, cursor: "pointer", textDecoration: "underline", padding: 0 } }, "Remove key"))),
+            React.createElement("label", { style: { display: "flex", gap: 9, alignItems: "flex-start", marginTop: 12, cursor: "pointer" } },
+                React.createElement("input", { type: "checkbox", checked: !!form.serperOn, onChange: (e) => save({ serperOn: e.target.checked }), style: { marginTop: 3 } }),
+                React.createElement("span", { style: { fontSize: 13, color: C.ink, lineHeight: 1.55 } }, "Search the web before answering. Turn this off to save searches; answers then rely on the model's own knowledge.")))),
+        React.createElement("div", { className: "astra-orbit", style: card },
+            React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "Groq key"),
+            React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.6 } },
+                "Get a key at ",
+                React.createElement("a", { href: "https://console.groq.com/keys", target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 700 } }, "console.groq.com/keys \u2197"),
+                ". Groq runs open models very fast and has a free tier. Stored in Script Properties, the same as the others."),
+            React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap", alignItems: "flex-end" } },
+                React.createElement("div", { style: { flex: "1 1 280px" } },
+                    React.createElement("label", { style: label, htmlFor: "astra-groq-key" }, cfg && cfg.hasGroq ? "Replace the Groq key" : "Paste the Groq key"),
+                    React.createElement("input", { id: "astra-groq-key", type: "password", value: groqKey, autoComplete: "off", spellCheck: false, onChange: (e) => { setGroqKey(e.target.value); setNote(null); }, placeholder: "gsk_\u2026", style: { ...field, width: "100%", boxSizing: "border-box" } })),
+                form && (React.createElement("div", { style: { flex: "1 1 260px" } },
+                    React.createElement("label", { style: label, htmlFor: "astra-groq-model" }, "Groq model"),
+                    React.createElement("select", { id: "astra-groq-model", value: form.groqModel, onChange: (e) => setForm({ ...form, groqModel: e.target.value }), style: { ...field, width: "100%", boxSizing: "border-box" } }, GROQ_MODELS.map(([id, name]) => React.createElement("option", { key: id, value: id }, name))))),
+                React.createElement("button", { onClick: () => save(), disabled: busy, style: primary(!busy) }, busy ? "Saving…" : "Save")),
+            cfg && cfg.hasGroq && (React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12, fontSize: 13, color: C.soft } },
+                React.createElement("span", null,
+                    "Key on file: ",
+                    React.createElement("b", { style: { color: C.ink, letterSpacing: 1 } }, cfg.groqHint)),
+                React.createElement("button", { onClick: () => save({ clearGroqKey: true }), disabled: busy, style: { background: "transparent", border: "none", color: C.soft, fontSize: 13, fontWeight: 700, cursor: "pointer", textDecoration: "underline", padding: 0 } }, "Remove key")))),
         React.createElement("div", { className: "astra-orbit", style: card },
             React.createElement("div", { style: { fontSize: 16, fontWeight: 900, color: C.navy } }, "Google AI key"),
             React.createElement("div", { style: { fontSize: 13.5, color: C.soft, marginTop: 5, lineHeight: 1.6 } },
@@ -5539,14 +5615,18 @@ function AiPanel({ account }) {
             React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", alignItems: "center" } },
                 React.createElement("button", { onClick: () => save(), disabled: busy, style: primary(!busy) }, busy ? "Saving…" : "Save settings"),
                 React.createElement("button", { onClick: load, disabled: busy, style: ghost }, "Refresh"),
-                React.createElement("button", { onClick: runTest, disabled: testing || !cfg || !cfg.hasKey, style: { ...ghost, opacity: cfg && cfg.hasKey ? 1 : 0.5 } }, testing ? "Asking Google…" : "Test it")),
+                React.createElement("button", { onClick: () => runTest(), disabled: testing || !cfg || !cfg.hasKey, style: { ...ghost, opacity: cfg && cfg.hasKey ? 1 : 0.5 } }, testing ? "Asking…" : "Test it")),
             test && (React.createElement("div", { style: {
                     marginTop: 12, padding: "12px 14px", borderRadius: 8, fontSize: 13.5, lineHeight: 1.6,
                     background: test.ok ? "#EFFBF4" : "#FEF2F2",
                     border: `1px solid ${test.ok ? "#BFE9D2" : "#FECACA"}`,
                     color: test.ok ? "#166534" : "#991B1B",
                 } },
-                React.createElement("b", null, test.ok ? `It works — ${test.model} answered:` : "That didn't work:"),
+                React.createElement("b", null, test.ok
+                    ? (test.serper
+                        ? "Search works:"
+                        : `It works. ${test.provider === "groq" ? "Groq" : "Gemini"} (${test.model}) answered${test.sources ? `, using ${test.sources} live result${test.sources === 1 ? "" : "s"}` : ", with no live search"}:`)
+                    : "That didn't work:"),
                 React.createElement("div", { style: { marginTop: 6, color: C.ink } }, test.text))))),
         React.createElement("div", { style: { ...card, background: C.paleTeal, border: "1px solid #BFE5E5" } },
             React.createElement("div", { style: { fontSize: 14, fontWeight: 900, color: C.navy } }, "Where people see the AI"),
