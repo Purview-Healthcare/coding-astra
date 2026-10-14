@@ -5294,11 +5294,6 @@ async function saveAccess(creds, targetEmail, specialties) {
         email: creds.email, password: creds.pw, targetEmail, specialties,
     });
 }
-async function removeUser(creds, targetEmail) {
-    return callSheet("adminRemoveUser", {
-        email: creds.email, password: creds.pw, targetEmail,
-    });
-}
 /* "ALL" or a list of CMS specialty codes. */
 function allowedFor(account) {
     if (!account)
@@ -6167,8 +6162,6 @@ function LastUsed({ user }) {
 function AdminPanel({ account }) {
     const [users, setUsers] = useState(null);
     const [editing, setEditing] = useState(null);
-    const [confirming, setConfirming] = useState(null); // email awaiting a second click
-    const [removing, setRemoving] = useState(null);
     const [sheetUrl, setSheetUrl] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
@@ -6191,21 +6184,6 @@ function AdminPanel({ account }) {
     useEffect(() => { load(); }, []);
     /* Two clicks, never a browser pop-up: the first turns the link into
        "Remove?" with a way back, the second does it. */
-    const doRemove = async (email) => {
-        setRemoving(email);
-        setError(null);
-        try {
-            await removeUser({ email: account.email, pw: account.pw }, email);
-            setUsers((list) => (list || []).filter((x) => x.email !== email));
-            setConfirming(null);
-        }
-        catch (e) {
-            setError(friendlyAuthError(e));
-        }
-        finally {
-            setRemoving(null);
-        }
-    };
     const filtered = useMemo(() => {
         if (!users)
             return [];
@@ -6326,9 +6304,8 @@ function AdminPanel({ account }) {
                                     ? "All specialties"
                                     : u.specialties.length + (u.specialties.length === 1 ? " specialty" : " specialties")),
                                 React.createElement("button", { onClick: () => setEditing(editing === u.email ? null : u.email), style: { marginLeft: 8, background: "transparent", border: "none", color: C.teal, fontSize: 12, fontWeight: 800, cursor: "pointer", padding: 0 } }, editing === u.email ? "Close" : "Change")),
-                            React.createElement("td", { style: { ...td, textAlign: "right", whiteSpace: "nowrap" } }, confirming === u.email ? (React.createElement(React.Fragment, null,
-                                React.createElement("button", { onClick: () => doRemove(u.email), disabled: removing === u.email, style: { background: "#991B1B", color: "#fff", border: "none", borderRadius: 6, padding: "5px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" } }, removing === u.email ? "Removing…" : "Remove"),
-                                React.createElement("button", { onClick: () => setConfirming(null), style: { marginLeft: 8, background: "transparent", border: "none", color: C.soft, fontSize: 12, fontWeight: 800, cursor: "pointer", padding: 0 } }, "Keep"))) : (React.createElement("button", { onClick: () => { setConfirming(u.email); setEditing(null); }, style: { background: "transparent", border: "none", color: C.soft, fontSize: 12, fontWeight: 800, cursor: "pointer", padding: 0 }, title: "Delete this account, its password and its sessions" }, "Remove")))),
+                            React.createElement("td", { style: { ...td, textAlign: "right", whiteSpace: "nowrap" } },
+                                React.createElement("span", { style: { fontSize: 11.5, color: C.soft } }, "\u00A0"))),
                         editing === u.email && (React.createElement("tr", null,
                             React.createElement("td", { colSpan: 10, style: { padding: "0 12px 14px" } },
                                 React.createElement(AccessEditor, { user: u, account: account, onCancel: () => setEditing(null), onSaved: (email, value) => {
@@ -6336,8 +6313,8 @@ function AdminPanel({ account }) {
                                         setEditing(null);
                                     } })))))))))))),
         React.createElement("div", { style: { fontSize: 12, color: C.soft, lineHeight: 1.6 } },
-            React.createElement("b", null, "Remove"),
-            " deletes that account, its password and every device it is signed in on \u2014 immediately, and it cannot be undone. Their rows in the activity log stay, so your usage history isn't rewritten.")));
+            React.createElement("b", null, "To remove someone"),
+            ", open the sheet and delete their row on the Signups tab. That ends their sign-in and their password at once. Their rows in the activity log stay, so your usage history isn't rewritten.")));
 }
 /* ============================================================
    MODIFIER + POS CHECKER
