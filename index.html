@@ -6102,6 +6102,12 @@ function FeedbackCard({ account }) {
                     React.createElement("span", { style: { fontSize: 12, color: C.soft, flex: 1 } }, r.where || ""),
                     React.createElement("span", { style: { fontSize: 11.5, color: C.soft } }, r.when ? timeAgo(r.when) : "")),
                 React.createElement("div", { style: { fontSize: 13.5, color: C.ink, marginTop: 6, lineHeight: 1.6, whiteSpace: "pre-wrap" } }, r.message),
+                Array.isArray(r.attachments) && r.attachments.length > 0 && (React.createElement("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 } }, r.attachments
+                    .filter((a) => a && /^https:\/\//.test(String(a.url || "")))
+                    .map((a, j) => (React.createElement("a", { key: j, href: a.url, target: "_blank", rel: "noopener noreferrer", style: { fontSize: 12.5, color: C.teal, fontWeight: 800, textDecoration: "none" } },
+                    "Screenshot ",
+                    j + 1,
+                    " \u2197"))))),
                 React.createElement("div", { style: { fontSize: 12, color: C.soft, marginTop: 7 } },
                     r.name,
                     r.org ? " · " + r.org : "",
@@ -6844,8 +6850,44 @@ const FEEDBACK_KINDS = [
     ["idea", "I have an idea"],
     ["good", "This helped me"],
 ];
+/* Shrink a screenshot before it is sent: at most 1600px on the long
+   side, PNG while that stays small (sharp text), otherwise JPEG. The
+   data is base64 without its data: prefix, which is what the sheet's
+   Utilities.base64Decode expects. */
+function shrinkShot(file) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+            const c = document.createElement("canvas");
+            c.width = Math.max(1, Math.round(img.width * k));
+            c.height = Math.max(1, Math.round(img.height * k));
+            const x = c.getContext("2d");
+            x.fillStyle = "#fff";
+            x.fillRect(0, 0, c.width, c.height);
+            x.drawImage(img, 0, 0, c.width, c.height);
+            URL.revokeObjectURL(url);
+            let d = c.toDataURL("image/png"), type = "image/png", ext = ".png";
+            if (d.length > 1400000) {
+                d = c.toDataURL("image/jpeg", 0.85);
+                type = "image/jpeg";
+                ext = ".jpg";
+            }
+            let base = String(file.name || "").replace(/\.[^.]*$/, "") || "screenshot";
+            if (base === "image")
+                base = "screenshot";
+            resolve({ name: base + ext, type, data: d.split(",")[1], preview: d });
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That image couldn't be read.")); };
+        img.src = url;
+    });
+}
+const MAX_SHOTS = 3;
 function FeedbackTab({ tab }) {
     const [open, setOpen] = useState(false);
+    const [shots, setShots] = useState([]);
+    const fileRef = useRef(null);
     const [kind, setKind] = useState("problem");
     const [text, setText] = useState("");
     const [busy, setBusy] = useState(false);
@@ -6905,7 +6947,7 @@ function FeedbackTab({ tab }) {
         const vw = typeof window !== "undefined" ? window.innerWidth : 1024;
         const vh = typeof window !== "undefined" ? window.innerHeight : 768;
         const pw = Math.min(330, vw - 28);
-        const ph = 360;
+        const ph = 440;
         const left = spot.x > vw / 2 ? Math.max(14, spot.x - pw - 10) : Math.min(vw - pw - 14, spot.x + 44);
         const top = Math.max(14, Math.min(spot.y - 40, vh - ph - 14));
         return { left, top, right: "auto", transform: "none" };
@@ -6922,8 +6964,43 @@ function FeedbackTab({ tab }) {
     }, [open]);
     const close = () => {
         setOpen(false);
-        setTimeout(() => { setSent(false); setError(null); setKind("problem"); }, 250);
+        setTimeout(() => { setSent(false); setError(null); setKind("problem"); setShots([]); }, 250);
     };
+    const addShots = async (list) => {
+        const imgs = Array.from(list || []).filter((f) => /^image\//.test(f.type));
+        if (!imgs.length) {
+            setError("Only images can be attached.");
+            return;
+        }
+        const room = MAX_SHOTS - shots.length;
+        if (room <= 0) {
+            setError(`Up to ${MAX_SHOTS} images per message.`);
+            return;
+        }
+        try {
+            const done = await Promise.all(imgs.slice(0, room).map(shrinkShot));
+            setShots((s) => s.concat(done).slice(0, MAX_SHOTS));
+            setError(imgs.length > room ? `Up to ${MAX_SHOTS} images per message.` : null);
+        }
+        catch (e) {
+            setError(e.message);
+        }
+    };
+    /* A snip copied with Win+Shift+S or Cmd+Ctrl+Shift+4 can be pasted
+       straight in while the panel is open. */
+    useEffect(() => {
+        if (!open || sent)
+            return undefined;
+        const onPaste = (e) => {
+            const files = Array.from((e.clipboardData && e.clipboardData.files) || []).filter((f) => /^image\//.test(f.type));
+            if (!files.length)
+                return;
+            e.preventDefault();
+            addShots(files);
+        };
+        document.addEventListener("paste", onPaste);
+        return () => document.removeEventListener("paste", onPaste);
+    }, [open, sent, shots]);
     const send = async () => {
         const message = text.trim();
         if (message.length < 3 || busy)
@@ -6931,8 +7008,12 @@ function FeedbackTab({ tab }) {
         setBusy(true);
         setError(null);
         try {
-            await callSheet("feedback", { ...(AI_AUTH || {}), kind, message, where: FEEDBACK_WHERE[tab] || "" });
+            await callSheet("feedback", {
+                ...(AI_AUTH || {}), kind, message, where: FEEDBACK_WHERE[tab] || "",
+                attachments: shots.map(({ name, type, data }) => ({ name, type, data })),
+            });
             setText("");
+            setShots([]);
             setSent(true);
         }
         catch (e) {
@@ -6983,6 +7064,23 @@ function FeedbackTab({ tab }) {
                         fontSize: 13.5, fontFamily: "inherit", border: `1.5px solid ${C.line}`,
                         borderRadius: 8, color: C.ink, outline: "none", resize: "vertical",
                     } }),
+                React.createElement("div", { onDragOver: (e) => e.preventDefault(), onDrop: (e) => { e.preventDefault(); addShots(e.dataTransfer.files); }, style: {
+                        marginTop: 9, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                        padding: "8px 10px", border: `1.5px dashed ${C.line}`, borderRadius: 8,
+                    } },
+                    React.createElement("input", { ref: fileRef, type: "file", accept: "image/*", multiple: true, hidden: true, onChange: (e) => { addShots(e.target.files); e.target.value = ""; } }),
+                    React.createElement("button", { onClick: () => fileRef.current && fileRef.current.click(), disabled: shots.length >= MAX_SHOTS, style: {
+                            ...chip(false), padding: "5px 11px", fontSize: 12,
+                            cursor: shots.length >= MAX_SHOTS ? "default" : "pointer",
+                        } }, "Attach screenshot"),
+                    React.createElement("span", { style: { fontSize: 11.5, color: C.soft } }, "or paste a snip (Ctrl+V)")),
+                shots.length > 0 && (React.createElement("div", { style: { display: "flex", gap: 7, flexWrap: "wrap", marginTop: 8 } }, shots.map((s, i) => (React.createElement("div", { key: i, style: { position: "relative", width: 64, height: 48, border: `1px solid ${C.line}`, borderRadius: 6, overflow: "hidden" } },
+                    React.createElement("img", { src: s.preview, alt: s.name, style: { width: "100%", height: "100%", objectFit: "cover", display: "block" } }),
+                    React.createElement("button", { onClick: () => setShots((all) => all.filter((_, j) => j !== i)), "aria-label": "Remove image", style: {
+                            position: "absolute", top: 2, right: 2, width: 18, height: 18, borderRadius: "50%",
+                            border: "none", background: "rgba(15,42,67,.75)", color: "#fff", fontSize: 11,
+                            lineHeight: 1, cursor: "pointer", padding: 0,
+                        } }, "\u00D7")))))),
                 React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 10, marginTop: 10 } },
                     React.createElement("button", { onClick: send, disabled: busy || text.trim().length < 3, style: {
                             background: busy || text.trim().length < 3 ? "#CBD9DE" : GRAD, color: "#fff",
@@ -6993,7 +7091,7 @@ function FeedbackTab({ tab }) {
                         1000 - text.length,
                         " left")),
                 error && React.createElement("div", { role: "alert", style: { marginTop: 9, fontSize: 12, color: "#991B1B" } }, error),
-                React.createElement("div", { style: { marginTop: 11, fontSize: 11.5, color: C.soft, lineHeight: 1.6 } }, "Your name and which tab you were on are sent with it. Never include patient details.")))))));
+                React.createElement("div", { style: { marginTop: 11, fontSize: 11.5, color: C.soft, lineHeight: 1.6 } }, "Your name and which tab you were on are sent with it. Never include patient details \u2014 crop them out of screenshots too.")))))));
 }
 function AskMePanel({ isAdmin }) {
     const [messages, setMessages] = useState([]);
