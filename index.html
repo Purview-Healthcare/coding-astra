@@ -2460,9 +2460,12 @@ function phiError(what) {
 async function aiViaSheet(payload) {
     /* Every AI route in the app passes through here, so one check covers
        the bot and anything else that asks a question. */
+    /* "topic" carries the code-lookup path, which is the default kind and the
+       route most questions take. Leaving it out meant the guard watched the
+       bot and ignored the search box. */
     const typed = [
         ...(Array.isArray(payload.messages) ? payload.messages.filter((m) => m && m.role !== "assistant").map((m) => m.content || "") : []),
-        payload.question || "", payload.q || "",
+        payload.topic || "", payload.question || "", payload.q || "",
     ].join("\n");
     const bad = phiReason(typed);
     if (bad)
@@ -3119,8 +3122,8 @@ function Para({ text, max = 420 }) {
 }
 function ArticleCard({ a, code }) {
     const [open, setOpen] = useState(true);
-    const covered = (a.covered || []).filter((g) => g.codes.length);
-    const non = (a.noncovered || []).filter((g) => g.codes.length);
+    const covered = (a.covered || []).filter((g) => g && (g.codes || []).length);
+    const non = (a.noncovered || []).filter((g) => g && (g.codes || []).length);
     const dxCount = covered.reduce((n, g) => n + g.codes.length, 0);
     return (React.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 10, background: "#fff", overflow: "hidden" } },
         React.createElement("div", { onClick: () => setOpen(!open), style: { padding: "12px 14px", cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start" } },
@@ -3203,7 +3206,7 @@ function DxVerdict({ v }) {
             React.createElement("b", { style: { fontFamily: "ui-monospace, Menlo, Consolas, monospace" } }, dotDx(v.dx)),
             " ",
             words[v.overall] || words.norule),
-        v.per.length > 0 && (React.createElement("div", { style: { display: "grid", gap: 6, marginTop: 10 } }, v.per.map((p) => (React.createElement("div", { key: p.displayId, style: { fontSize: 12.5, color: C.ink, lineHeight: 1.5, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" } },
+        (v.per || []).length > 0 && (React.createElement("div", { style: { display: "grid", gap: 6, marginTop: 10 } }, (v.per || []).map((p) => (React.createElement("div", { key: p.displayId, style: { fontSize: 12.5, color: C.ink, lineHeight: 1.5, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" } },
             React.createElement("span", { style: { fontWeight: 900, color: p.status === "covered" ? "#166534" : p.status === "noncovered" ? "#991B1B" : p.status === "notlisted" ? C.warn : C.soft, minWidth: 84 } }, pw[p.status]),
             React.createElement("a", { href: p.url, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 800, textDecoration: "none" } }, p.displayId),
             React.createElement("span", null, p.title),
@@ -3423,9 +3426,9 @@ function CmsDocPanel({ query, account, onClose }) {
                 " polic",
                 data.total === 1 ? "y" : "ies",
                 " with all of those words in the title",
-                data.total > data.matches.length ? `, showing ${data.matches.length}` : "",
+                data.total > (data.matches || []).length ? `, showing ${(data.matches || []).length}` : "",
                 "."),
-            React.createElement("div", { style: { display: "grid", gap: 6 } }, data.matches.map((d, i) => React.createElement(DocRow, { key: d.type + d.displayId + i, d: d }))))),
+            React.createElement("div", { style: { display: "grid", gap: 6 } }, (data.matches || []).map((d, i) => React.createElement(DocRow, { key: d.type + d.displayId + i, d: d }))))),
         data && data.kind === "missing" && (React.createElement("div", { style: { marginTop: 12, padding: 14, background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8 } },
             React.createElement("div", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.6 } },
                 React.createElement("b", null, data.id),
@@ -3436,7 +3439,7 @@ function CmsDocPanel({ query, account, onClose }) {
             React.createElement("div", { style: { marginTop: 10 } },
                 React.createElement(SotLink, { href: data.url, label: `Look for ${data.id} on the Medicare Coverage Database` })))),
         data && data.kind === "lcd" && data.live && (React.createElement("div", { style: { marginTop: 10, fontSize: 12, color: C.soft } }, "Read straight from CMS: this LCD is not in the index yet, so its states and related articles may be incomplete until the next index build.")),
-        data && (data.kind === "none" || (data.kind === "list" && !data.matches.length)) && (React.createElement("div", { style: { marginTop: 12, fontSize: 13, color: C.ink, lineHeight: 1.55 } },
+        data && (data.kind === "none" || (data.kind === "list" && !(data.matches || []).length)) && (React.createElement("div", { style: { marginTop: 12, fontSize: 13, color: C.ink, lineHeight: 1.55 } },
             "Nothing in the index matches that. Policy numbers look like ",
             React.createElement("b", null, "A57637"),
             ", ",
@@ -3477,7 +3480,7 @@ function CodeDxPolicy({ account }) {
     };
     const pickState = (v) => { saveCmsState(v); setStateName(v); };
     const inputStyle = { padding: "10px 12px", fontSize: 14, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none", background: "#fff" };
-    const per = data && data.verdict ? data.verdict.per : [];
+    const per = (data && data.verdict && data.verdict.per) || [];
     const covering = per.filter((p) => p.status === "covered");
     const refusing = per.filter((p) => p.status === "noncovered" || p.status === "notlisted");
     return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 18 } },
@@ -3540,7 +3543,7 @@ function CodeDxPolicy({ account }) {
                         p.contractor))))))),
             (data.articles || []).length > 0 && (React.createElement(Section, { label: `Policies listing ${c}${stateName ? " for " + stateName : ""}` },
                 React.createElement("div", { style: { display: "grid", gap: 6 } },
-                    data.articles.map((a) => React.createElement(DocRow, { key: a.id, d: { type: "Article", displayId: a.displayId, title: a.title, contractor: a.contractor, states: (a.states || []).join("; "), effective: a.effective, updatedOn: a.updatedOn, url: a.url, retired: a.retired } })),
+                    (data.articles || []).map((a) => React.createElement(DocRow, { key: a.id, d: { type: "Article", displayId: a.displayId, title: a.title, contractor: a.contractor, states: (a.states || []).join("; "), effective: a.effective, updatedOn: a.updatedOn, url: a.url, retired: a.retired } })),
                     (data.lcds || []).map((l) => React.createElement(DocRow, { key: l.displayId, d: { ...l, type: "LCD", states: (l.states || []).join("; ") } }))))),
             React.createElement(PulledFrom, { items: [{ url: "https://www.cms.gov/medicare-coverage-database/search.aspx", label: "Medicare Coverage Database", note: "read live through CMS's Coverage API at the moment you search" }] })))));
 }
@@ -3766,7 +3769,7 @@ function CmsCoveragePanel({ code, account, onClose, dxFromSearch, pairFromSearch
                 React.createElement("div", { style: { display: "grid", gap: 6 } }, data.lcds.map((l) => React.createElement(DocRow, { key: l.displayId, d: { ...l, type: "LCD", states: (l.states || []).join("; ") } }))))),
             React.createElement(Section, { label: `Billing & Coding articles that list ${code}${stateName ? " for " + stateName : ""}` },
                 indexReady === false && (React.createElement("div", { style: { padding: 12, background: C.warnBg, border: "1px solid #FCD9A8", borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } }, "The CMS article index hasn't been built yet, so no local coverage can be shown. An administrator starts it from Admin \u2192 CMS data.")),
-                indexReady && data.articles.length === 0 && (!data.lcds || data.lcds.length === 0) && (React.createElement("div", { style: { padding: 12, background: C.bg, border: `1px dashed ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } },
+                indexReady && (data.articles || []).length === 0 && (!data.lcds || data.lcds.length === 0) && (React.createElement("div", { style: { padding: 12, background: C.bg, border: `1px dashed ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink, lineHeight: 1.55 } },
                     "No current Billing & Coding article lists ",
                     code,
                     stateName ? ` for ${stateName}` : "",
@@ -3778,17 +3781,17 @@ function CmsCoveragePanel({ code, account, onClose, dxFromSearch, pairFromSearch
                         data.otherStates === 1 ? "" : "s",
                         " list it for other states: switch to All states to see them."),
                     data.otherStates === 0 && React.createElement("span", null, " That usually means the MACs don't restrict this code to a diagnosis list. Check the fee schedule status below and any NCD on the CMS sources tab."))),
-                React.createElement("div", { style: { display: "grid", gap: 10 } }, data.articles.map((a) => React.createElement(ArticleCard, { key: a.id, a: a, code: code }))),
+                React.createElement("div", { style: { display: "grid", gap: 10 } }, (data.articles || []).map((a) => React.createElement(ArticleCard, { key: a.id, a: a, code: code }))),
                 data.moreCurrent > 0 && React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 8 } },
                     data.moreCurrent,
                     " more article",
                     data.moreCurrent === 1 ? "" : "s",
                     " list this code. Choose a state to narrow the list."),
-                data.retired.length > 0 && (React.createElement("div", { style: { marginTop: 10, fontSize: 12.5, color: C.soft, lineHeight: 1.6 } },
+                (data.retired || []).length > 0 && (React.createElement("div", { style: { marginTop: 10, fontSize: 12.5, color: C.soft, lineHeight: 1.6 } },
                     React.createElement("b", null, "Retired articles"),
                     " (useful for older dates of service):",
                     " ",
-                    data.retired.map((r, i) => React.createElement("span", { key: r.displayId },
+                    (data.retired || []).map((r, i) => React.createElement("span", { key: r.displayId },
                         i > 0 ? ", " : "",
                         React.createElement("a", { href: r.url, target: "_blank", rel: "noreferrer", style: { color: C.teal, fontWeight: 700, textDecoration: "none" } }, r.displayId),
                         " ",
@@ -3799,7 +3802,7 @@ function CmsCoveragePanel({ code, account, onClose, dxFromSearch, pairFromSearch
                         r.retired,
                         ")"))))),
             React.createElement(Section, { label: "Physician Fee Schedule payment indicators" },
-                data.fee.length ? React.createElement(FeeBlock, { rows: data.fee, label: `From the CMS relative value file ${st && st.fee ? st.fee : ""}` })
+                (data.fee || []).length ? React.createElement(FeeBlock, { rows: data.fee, label: `From the CMS relative value file ${st && st.fee ? st.fee : ""}` })
                     : React.createElement("div", { style: { fontSize: 13, color: C.ink } }, st && st.fee ? `${code} is not in the current fee schedule file (${st.fee}). It may be a non-physician-fee-schedule code, a deleted code or a typo.` : "Fee schedule file not loaded yet. An administrator fetches it from Admin → CMS data."),
                 React.createElement("div", { style: { marginTop: 8 } },
                     React.createElement(SotLink, { href: "https://www.cms.gov/medicare/physician-fee-schedule/search", label: "Physician Fee Schedule Look-Up Tool" }))),
@@ -5763,18 +5766,18 @@ function AiPanel({ account }) {
                 React.createElement("div", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.6 } },
                     React.createElement("b", null,
                         "Groq this month: $",
-                        spend.cost.toFixed(2)),
+                        Number(spend.cost || 0).toFixed(2)),
                     " across ",
-                    spend.calls.toLocaleString(),
+                    Number(spend.calls || 0).toLocaleString(),
                     " answers.",
                     spend.budget > 0
                         ? ` That is ${Math.round((spend.cost / spend.budget) * 100)} per cent of the $${spend.budget} you set.`
                         : " No budget set, so nothing is watching it."),
                 React.createElement("div", { style: { fontSize: 12.5, color: C.soft, marginTop: 6, lineHeight: 1.55 } },
                     "Measured, not estimated. Groq reports the tokens with every answer: ",
-                    (spend.inTok / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 }),
+                    (Number(spend.inTok || 0) / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 }),
                     "k in and ",
-                    (spend.outTok / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 }),
+                    (Number(spend.outTok || 0) / 1000).toLocaleString(undefined, { maximumFractionDigits: 0 }),
                     "k out so far. Groq bills at month end, so nothing stops when a budget is passed. The count resets on the 1st."),
                 React.createElement("div", { style: { display: "flex", gap: 10, marginTop: 11, flexWrap: "wrap", alignItems: "flex-end" } },
                     React.createElement("div", { style: { flex: "0 1 180px" } },
@@ -5792,14 +5795,14 @@ function AiPanel({ account }) {
                 pack && pack.size ? (React.createElement(React.Fragment, null,
                     React.createElement("div", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.6 } },
                         React.createElement("b", null,
-                            pack.left.toLocaleString(),
+                            Number(pack.left || 0).toLocaleString(),
                             " Serper credits left"),
                         " of ",
-                        pack.size.toLocaleString(),
+                        Number(pack.size || 0).toLocaleString(),
                         " bought on ",
-                        pack.bought,
+                        pack.bought || "the date recorded",
                         ". ",
-                        pack.used.toLocaleString(),
+                        Number(pack.used || 0).toLocaleString(),
                         " used since."),
                     React.createElement("div", { style: { height: 7, borderRadius: 4, background: "#E3E9EC", marginTop: 9, overflow: "hidden" } },
                         React.createElement("div", { style: {
@@ -7002,16 +7005,21 @@ function AskMePanel({ isAdmin }) {
     }, [messages, busy]);
     const send = async (text) => {
         const q = (text || input).trim();
-        if (!q || busy)
+        /* The red warning disables Send, but Enter went straight past it, so a
+           question the user had been told was stopped was still logged. */
+        if (!q || busy || phiReason(q))
             return;
         setInput("");
         setError(null);
-        logUsage("Ask Me", "question", q, null);
         const history = [...messages, { role: "user", content: q }];
         setMessages(history);
         setBusy(true);
         try {
             const reply = await chatWithAstra(history);
+            /* Logged only once the guard has let it through. It used to be written
+               to the sheet first, so a question the user was told had been stopped
+               was recorded verbatim anyway. */
+            logUsage("Ask Me", "question", q, null);
             const meta = aiViaSheet.last;
             setMessages([...history, {
                     role: "assistant", content: reply,
