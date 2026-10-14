@@ -3861,7 +3861,11 @@ function CmsUpdatesCard() {
     const changes = (data && data.changes) || [];
     const q = f.trim().toUpperCase();
     const rows = q ? changes.filter((c) => [c.displayId, c.title, c.contractor, c.added, c.removed, c.states].join(" ").toUpperCase().includes(q)) : changes;
-    const tone = { New: "#166534", Updated: C.warn, Retired: "#991B1B", Removed: "#991B1B", "Fee schedule": C.navy, MUE: C.navy };
+    /* The last three are the quarterly file replacements. They read as the file
+       that changed rather than as an article verb, so they get their own keys
+       instead of falling through to plain ink. */
+    const tone = { New: "#166534", Updated: C.warn, Retired: "#991B1B", Removed: "#991B1B", "Fee schedule": C.navy, MUE: C.navy,
+        "Physician Fee Schedule": C.navy, "NCCI unit limits (MUE)": C.navy, "NCCI bundling edits (PTP)": C.navy };
     return (React.createElement("div", { className: "astra-orbit", style: { background: "#fff", border: `1px solid ${C.line}`, borderLeft: `4px solid ${C.green}`, borderRadius: 10, padding: 18 } },
         React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" } },
             React.createElement(LiveBadge, { text: "CMS UPDATES" }),
@@ -3886,7 +3890,7 @@ function CmsUpdatesCard() {
             st.building.error ? ` (${st.building.error})` : "",
             ".")),
         React.createElement("div", { style: { marginTop: 14, fontSize: 12.5, color: C.soft, lineHeight: 1.55 } },
-            "Every weekly check compares CMS's article list with the last one and logs anything new, updated, retired or removed, with the CPT/HCPCS codes that changed. Last ",
+            "Every weekly check compares CMS's article list with the last one and logs anything new, updated, retired or removed, with the CPT/HCPCS codes that changed. The quarterly files are logged here too the day CMS replaces them, and emailed to the notification addresses. Last ",
             CMS_CHANGES_DAYS_UI,
             " days:"),
         React.createElement("input", { value: f, onChange: (e) => setF(e.target.value), placeholder: "Filter by code, article, MAC or state\u2026", style: { width: "100%", boxSizing: "border-box", marginTop: 8, padding: "8px 10px", fontSize: 13, border: `1.5px solid ${C.line}`, borderRadius: 7, color: C.ink, outline: "none" } }),
