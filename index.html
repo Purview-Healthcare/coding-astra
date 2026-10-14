@@ -2588,6 +2588,11 @@ async function askCms(topic) {
             parsed = extractJson(await aiViaSheet({ kind: "cms", topic: topic + JSON_NUDGE }));
         if (!parsed)
             throw new Error("couldn't read the AI response after 2 attempts");
+        /* How many pages were actually read, counted by the backend from the
+           search it ran. The model writes "confirmed-current" either way, so the
+           badge is drawn from this number and never from what the model claims. */
+        const meta = aiViaSheet.last;
+        parsed._checked = meta && typeof meta.sources === "number" ? meta.sources : 0;
         return parsed;
     }
     if (SHEET_API)
@@ -2682,6 +2687,34 @@ const Chip = ({ children, tone = "pos" }) => (React.createElement("span", { styl
 const Section = ({ label, children }) => (React.createElement("div", { style: { marginTop: 14 } },
     React.createElement("div", { style: { fontSize: 12, fontWeight: 800, color: C.teal, marginBottom: 6 } }, label),
     children));
+/* What the badge is allowed to say, decided apart from the drawing so it can
+   be checked on its own.
+
+   result._checked is how many pages the service really read, counted by the
+   backend from the search it ran — not taken from the model. The model writes
+   "status": "confirmed-current" either way, so on the free Gemini tier, where
+   no search runs at all, every answer used to carry a green CONFIRMED badge
+   and a verification date it had invented. Nothing here is added to the
+   panel: the label itself carries it, and the date goes when there is no
+   verification behind it. */
+function badgeFor(result) {
+    const checked = typeof result._checked === "number" ? result._checked : null;
+    const unread = checked === 0;
+    const tone = result.status === "updated"
+        ? { bg: C.warnBg, bd: "#FCD9A8", label: unread ? "RULE MAY HAVE CHANGED — review" : "RULE HAS CHANGED — review", color: C.warn }
+        : result.status === "confirmed-current" && !unread
+            ? { bg: "#EFFBF4", bd: "#BFE9D2", label: "CONFIRMED CURRENT", color: "#166534" }
+            : unread
+                ? { bg: "#F5F7F9", bd: C.line, label: "NOT CHECKED AGAINST CMS.GOV", color: C.soft }
+                : { bg: "#F5F7F9", bd: C.line, label: "COULDN'T FULLY CONFIRM", color: C.soft };
+    tone.stamp = unread
+        ? ""
+        : (checked > 0 ? ` · ${checked} page${checked === 1 ? "" : "s"} read` : "") + ` · verified ${result.as_of}`;
+    /* A model with no search behind it writes transmittal numbers from memory,
+       and a wrong one dressed as a stamped citation is worse than none. */
+    tone.showSources = !unread;
+    return tone;
+}
 function VerifyPanel({ result, loading, error }) {
     if (loading)
         return React.createElement(LiveSearching, { what: "current CMS guidance" });
@@ -2692,16 +2725,11 @@ function VerifyPanel({ result, loading, error }) {
             ". Try again, or look the code up on the CMS sources tab."));
     if (!result)
         return null;
-    const tone = result.status === "updated"
-        ? { bg: C.warnBg, bd: "#FCD9A8", label: "RULE HAS CHANGED — review", color: C.warn }
-        : result.status === "confirmed-current"
-            ? { bg: "#EFFBF4", bd: "#BFE9D2", label: "CONFIRMED CURRENT", color: "#166534" }
-            : { bg: "#F5F7F9", bd: C.line, label: "COULDN'T FULLY CONFIRM", color: C.soft };
+    const tone = badgeFor(result);
     return (React.createElement("div", { style: { padding: 14, background: tone.bg, border: `1px solid ${tone.bd}`, borderRadius: 8 } },
         React.createElement("div", { style: { fontSize: 11.5, fontWeight: 900, letterSpacing: 0.4, color: tone.color, marginBottom: 6 } },
             tone.label,
-            " \u00B7 verified ",
-            result.as_of),
+            tone.stamp),
         React.createElement("div", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.55 } }, result.summary),
         result.pos && React.createElement("div", { style: { fontSize: 13, marginTop: 8 } },
             React.createElement("b", null, "POS:"),
@@ -2723,7 +2751,7 @@ function VerifyPanel({ result, loading, error }) {
             React.createElement("b", null, "Watch:"),
             " ",
             result.watch),
-        Array.isArray(result.sources) && result.sources.length > 0 && (React.createElement("div", { style: { display: "grid", gap: 8, marginTop: 10 } }, result.sources.map((s, i) => React.createElement(SourceStamp, { key: i, s: { ...s, note: null } }))))));
+        tone.showSources && Array.isArray(result.sources) && result.sources.length > 0 && (React.createElement("div", { style: { display: "grid", gap: 8, marginTop: 10 } }, result.sources.map((s, i) => React.createElement(SourceStamp, { key: i, s: { ...s, note: null } }))))));
 }
 /* Inline AI check — appears under a rule card or under an empty search,
    never as a top-level search box. */
