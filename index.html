@@ -4682,12 +4682,35 @@ async function callSheet(action, payload) {
     catch (e) {
         throw new Error("couldn't reach the sign-in service — check your connection");
     }
-    let data;
+    /* Apps Script answers with an HTML page instead of JSON in a handful of
+       situations, and the page itself says which one: the deployment's access
+       is not set to Anyone, so Google serves its own sign-in page; the script
+       failed to compile, so every request gets an error page; or a quota ran
+       out. Reading the body and saying which turns twenty minutes of looking
+       in the wrong place into one instruction. The old message named the
+       sign-in service whatever the request was, so a coding question that
+       failed sent people to check their password. */
+    let raw = "";
     try {
-        data = await res.json();
+        raw = await res.text();
     }
     catch (e) {
-        throw new Error("the sign-in service returned an unexpected response");
+        raw = "";
+    }
+    let data;
+    try {
+        data = JSON.parse(raw);
+    }
+    catch (e) {
+        const looksHtml = /^\s*(<!doctype|<html|<)/i.test(raw);
+        const wantsGoogle = /accounts\.google\.com|ServiceLogin|Sign in - Google/i.test(raw);
+        if (wantsGoogle) {
+            throw new Error("the backend is asking people to sign in to Google. In Apps Script, set the deployment's \"Who has access\" to Anyone.");
+        }
+        if (looksHtml) {
+            throw new Error(`the backend returned a page instead of an answer (HTTP ${res.status}). Open the /exec address in a browser: the page says whether the script failed to compile or ran out of quota.`);
+        }
+        throw new Error(`the backend gave an answer the app couldn't read (HTTP ${res.status}).`);
     }
     if (data && data.error) {
         const err = new Error(data.error.message || "request failed");
@@ -4911,6 +4934,12 @@ function friendlyAiError(err) {
     if (/unknown action/i.test(msg)) {
         return "This feature is newer than the script the site is talking to. In Apps Script, paste the latest backend, then Deploy → Manage deployments → pencil → Version: New version → Deploy. Opening the /exec address in a browser shows which build is live.";
     }
+    /* Before this, a backend that answered with an HTML page let callSheet's
+       own wording through to the chat, where it read as a sign-in problem on
+       a question about a CPT code. */
+    if (/returned a page instead|couldn't read \(HTTP|asking people to sign in/i.test(msg)) {
+        return "The question never reached the sheet: " + msg;
+    }
     if (/credit|balance|quota|billing/i.test(msg)) {
         return "Google's AI account has hit its quota or needs billing enabled. Check the key's project at aistudio.google.com.";
     }
@@ -4925,8 +4954,11 @@ function friendlyAuthError(err) {
     if (/unknown action/i.test(msg)) {
         return "The sign-in service needs updating: the administrator has to publish the new Apps Script version (Deploy → Manage deployments → Edit → Version: New version).";
     }
-    if (/unexpected response/i.test(msg)) {
-        return "The sign-in service answered in a way the app didn't expect. Check the Apps Script deployment has \"Who has access\" set to Anyone.";
+    if (/asking people to sign in to Google/i.test(msg)) {
+        return "The backend is asking people to sign in to Google. In Apps Script: Deploy → Manage deployments → pencil → set \"Who has access\" to Anyone → Deploy.";
+    }
+    if (/returned a page instead|couldn't read \(HTTP|unexpected response/i.test(msg)) {
+        return "The backend answered with a page rather than an answer. Open the /exec address in a browser: it names the problem, and a healthy script replies with its build number.";
     }
     if (code === "NO_MATCH") {
         return "We couldn't match those details. Check them and try again.";
