@@ -1093,7 +1093,9 @@ const RULES = [
         modifiers: [],
         units: "99490 = first 20 minutes of clinical staff time per calendar month. 99439 = each additional 20 minutes, max 2 units per month. Only ONE practitioner may bill CCM for a patient in a month.",
         dx: [["Two or more", "The patient must have 2+ chronic conditions expected to last at least 12 months or until death, placing them at significant risk of decompensation"]],
-        dxNote: "List the chronic conditions being managed (e.g. E11.9 diabetes + I10 hypertension + N18.3 CKD). A single chronic condition does NOT qualify for 99490 — use the Principal Care Management codes (G3002 family / 99424–99427) instead.",
+        /* N18.3 was split into N18.30 / N18.31 / N18.32 and is now a header, so
+           it is not billable on its own. It sat in this example for months. */
+        dxNote: "List the chronic conditions being managed (e.g. E11.9 diabetes + I10 hypertension + N18.30 CKD stage 3, unspecified). Code CKD to the stage: N18.3 is a header since the 3a / 3b split and will reject. A single chronic condition does NOT qualify for 99490 — use the Principal Care Management codes (G3002 family / 99424–99427) instead.",
         why: "CCM pays for the between-visit work that never had a code: care-plan maintenance, medication reconciliation, coordination with other providers. It is a time-banked, once-per-calendar-month service, so a per-patient monthly time log is the entire audit defense. The single most common denial is two practitioners billing CCM for the same patient in the same month.",
         docs: "Patient consent (one-time, documented), a comprehensive electronic care plan shared with the patient, 24/7 access to care, a designated practitioner, and a minute-by-minute time log for the month.",
         sources: [
