@@ -6854,6 +6854,7 @@ function FeedbackTab({ tab }) {
     const [spot, setSpot] = useState(null); // null until dragged
     const boxRef = useRef(null);
     const drag = useRef(null);
+    const timer = useRef(null); // the auto-close after a send
     /* Same drag as the Ask Me button: follow the pointer's displacement,
        and treat a press that barely moved as a click. */
     const clamp = (x, y) => {
@@ -6920,23 +6921,51 @@ function FeedbackTab({ tab }) {
         catch (e) { /* focus is a nicety */ }
         return undefined;
     }, [open]);
-    const close = () => {
+    /* The pending auto-close is dropped whenever the panel goes, so it cannot
+       fire against a closed panel or shut one the user has just reopened. */
+    useEffect(() => () => { if (timer.current)
+        clearTimeout(timer.current); }, []);
+    /* clearDraft only on the path that sent something. Closing by hand keeps
+       what was typed, because throwing away a half-written message because
+       somebody hit the wrong button is its own small insult. */
+    const close = (clearDraft) => {
+        if (timer.current) {
+            clearTimeout(timer.current);
+            timer.current = null;
+        }
         setOpen(false);
-        setTimeout(() => { setSent(false); setError(null); setKind("problem"); }, 250);
+        setTimeout(() => {
+            setSent(false);
+            setError(null);
+            setKind("problem");
+            if (clearDraft === true)
+                setText("");
+        }, 250);
     };
     const send = async () => {
         const message = text.trim();
-        if (message.length < 3 || busy)
+        /* sent guards the seconds between the thank-you appearing and the panel
+           closing. The button is live again in that window and the message is
+           still in the box, and nothing on the way to the sheet removes
+           duplicates, so without this a second press files it twice and emails
+           it twice. */
+        if (message.length < 3 || busy || sent)
             return;
         setBusy(true);
         setError(null);
         try {
-            await callSheet("feedback", { ...(AI_AUTH || {}), kind, message, where: FEEDBACK_WHERE[tab] || "" });
-            setText("");
+            const reply = await callSheet("feedback", { ...(AI_AUTH || {}), kind, message, where: FEEDBACK_WHERE[tab] || "" });
+            /* callSheet throws on a network failure or a body carrying an error,
+               but a reply that simply never said ok is not a success either. That
+               is exactly how this form spent weeks thanking people for feedback it
+               had not saved, so it is checked rather than assumed. */
+            if (!reply || reply.ok !== true)
+                throw new Error("");
             setSent(true);
+            timer.current = setTimeout(() => close(true), 2500);
         }
         catch (e) {
-            setError(friendlyAuthError(e));
+            setError(friendlyAuthError(e) || "");
         }
         finally {
             setBusy(false);
@@ -6966,17 +6995,11 @@ function FeedbackTab({ tab }) {
             }, className: "astra-orbit astra-glow" },
             React.createElement("div", { style: { background: GRAD, color: "#fff", padding: "12px 15px", display: "flex", alignItems: "center", gap: 10 } },
                 React.createElement("span", { style: { fontSize: 14.5, fontWeight: 900, flex: 1 } }, "Tell us what you think"),
-                React.createElement("button", { onClick: close, "aria-label": "Close feedback", style: {
+                React.createElement("button", { onClick: () => close(), "aria-label": "Close feedback", style: {
                         background: "rgba(255,255,255,.18)", border: "none", color: "#fff",
                         width: 24, height: 24, borderRadius: 6, cursor: "pointer", fontSize: 14, fontWeight: 900, lineHeight: 1,
                     } }, "\u00D7")),
-            sent ? (React.createElement("div", { style: { padding: 20, textAlign: "center" } },
-                React.createElement("div", { style: { fontSize: 15, fontWeight: 900, color: C.navy } }, "Thank you"),
-                React.createElement("div", { style: { fontSize: 13, color: C.soft, marginTop: 6, lineHeight: 1.6 } }, "It reached the team. If it needs a reply, someone will email you."),
-                React.createElement("button", { onClick: close, style: {
-                        marginTop: 14, background: GRAD, color: "#fff", border: "none", borderRadius: 7,
-                        padding: "8px 18px", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: "inherit",
-                    } }, "Close"))) : (React.createElement("div", { style: { padding: 15 } },
+            React.createElement("div", { style: { padding: 15 } },
                 React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, FEEDBACK_KINDS.map(([id, label]) => (React.createElement("button", { key: id, onClick: () => setKind(id), style: chip(kind === id) }, label)))),
                 React.createElement("textarea", { ref: boxRef, value: text, onChange: (e) => { setText(e.target.value.slice(0, 1000)); setError(null); }, placeholder: "What happened, or what would make this better?", rows: 4, style: {
                         width: "100%", boxSizing: "border-box", marginTop: 11, padding: "10px 12px",
@@ -6992,8 +7015,19 @@ function FeedbackTab({ tab }) {
                     React.createElement("span", { style: { fontSize: 11.5, color: C.soft } },
                         1000 - text.length,
                         " left")),
-                error && React.createElement("div", { role: "alert", style: { marginTop: 9, fontSize: 12, color: "#991B1B" } }, error),
-                React.createElement("div", { style: { marginTop: 11, fontSize: 11.5, color: C.soft, lineHeight: 1.6 } }, "Your name and which tab you were on are sent with it. Never include patient details.")))))));
+                sent && (React.createElement("div", { role: "status", style: {
+                        marginTop: 10, padding: "9px 11px", borderRadius: 7,
+                        background: "#EFFBF4", border: "1px solid #BFE9D2",
+                        fontSize: 12.5, color: "#166534", lineHeight: 1.55, fontWeight: 700,
+                    } }, "Thanks \u2014 your feedback helps us improve Coding Astra. We've got it.")),
+                error !== null && !sent && (React.createElement("div", { role: "alert", style: {
+                        marginTop: 10, padding: "9px 11px", borderRadius: 7,
+                        background: "#FEF2F2", border: "1px solid #FECACA",
+                        fontSize: 12.5, color: "#991B1B", lineHeight: 1.55,
+                    } },
+                    React.createElement("b", null, "Couldn't send \u2014 please try again."),
+                    error && React.createElement("div", { style: { fontWeight: 400, marginTop: 3 } }, error))),
+                React.createElement("div", { style: { marginTop: 11, fontSize: 11.5, color: C.soft, lineHeight: 1.6 } }, "Your name and which tab you were on are sent with it. Never include patient details."))))));
 }
 function AskMePanel({ isAdmin }) {
     const [messages, setMessages] = useState([]);
